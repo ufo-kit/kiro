@@ -33,6 +33,7 @@
 #include <glib.h>
 #include "kiro-client.h"
 #include "kiro-rdma.h"
+#include "kiro-trb.h"
 
 #include <errno.h>
 
@@ -50,8 +51,9 @@ struct _KiroClientPrivate {
 
     /* 'Real' private structures */
     /* (Not accessible by properties) */
-    struct rdma_event_channel   *ec;    // Main Event Channel
-    struct rdma_cm_id           *conn;  // Connection to the Server
+    struct rdma_event_channel   *ec;        // Main Event Channel
+    struct rdma_cm_id           *conn;      // Connection to the Server
+    KiroTrb                     *buffer;    // Ring Buffer used to hold data from server
     
 
 };
@@ -64,12 +66,15 @@ static void kiro_client_init (KiroClient *self)
 {
     KiroClientPrivate *priv = KIRO_CLIENT_GET_PRIVATE(self);
     memset(priv, 0, sizeof(&priv));
+    priv->buffer = g_object_new(KIRO_TYPE_TRB, NULL);
 }
 
 static void
 kiro_client_finalize (GObject *object)
 {
-    //PASS
+    KiroClient *self = KIRO_CLIENT(object);
+    KiroClientPrivate * priv = KIRO_CLIENT_GET_PRIVATE(self);
+    g_object_unref(priv->buffer);
 }
 
 static void
@@ -162,38 +167,74 @@ int kiro_client_connect (KiroClient *self, char *address, char* port)
         rdma_destroy_ep(priv->conn);
         return -1;
     }
+    printf("Connected to server.\n");
     
-    priv->ec = rdma_create_event_channel();
-    int oldflags = fcntl (priv->ec->fd, F_GETFL, 0);
-    /* Only change the FD Mode if we were able to get its flags */
-    if (oldflags >= 0) {
-        oldflags |= O_NONBLOCK;
-        /* Store modified flag word in the descriptor. */
-        fcntl (priv->ec->fd, F_SETFL, oldflags);
-    }
-    if(rdma_migrate_id(priv->conn, priv->ec))
+    
+    struct ibv_wc wc;
+    if(rdma_get_recv_comp(priv->conn, &wc) < 0)
     {
-        printf("Was unable to migrate connection to new Event Channel.\n");
+        printf("Failure waiting for POST from server.\n");
+        rdma_disconnect(priv->conn);
+        kiro_destroy_connection_context(ctx);
+        rdma_destroy_ep(priv->conn);
+        return -1;
+    }
+    printf("Got Message from Server.\n");
+    ctx->peer_mr = (((struct kiro_ctrl_msg *)(ctx->cf_mr_recv->mem))->peer_mri);
+    printf("Expected TRB Size is: %u\n",ctx->peer_mr.length);
+    
+    ctx->rdma_mr = kiro_create_rdma_memory(priv->conn->pd, ctx->peer_mr.length, IBV_ACCESS_LOCAL_WRITE);
+    if(!ctx->rdma_mr)
+    {
+        printf("Failed to allocate memory for receive buffer.\n");
+        rdma_disconnect(priv->conn);
+        kiro_destroy_connection_context(ctx);
+        rdma_destroy_ep(priv->conn);
+        return -1;
+    }
+    printf("Connection setup completed successfully!\n");
+    
+    return 0;
+}
+
+
+
+int kiro_client_sync (KiroClient *self)
+{   
+    KiroClientPrivate *priv = KIRO_CLIENT_GET_PRIVATE(self);
+    struct kiro_connection_context *ctx = (struct kiro_connection_context *)priv->conn->context;
+    
+    if(rdma_post_read(priv->conn, priv->conn, ctx->rdma_mr->mem, ctx->peer_mr.length, ctx->rdma_mr->mr, 0, ctx->peer_mr.addr, ctx->peer_mr.rkey))
+    {
+        printf("Failed to read from server.\n");
         rdma_disconnect(priv->conn);
         kiro_destroy_connection_context(ctx);
         rdma_destroy_ep(priv->conn);
         return -1;
     }
     
-    //ToDo:
-    //Create TRB, request RDMA from Server, call kiro_client_sync, ???, Profit!
+    struct ibv_wc wc;
+    if(rdma_get_send_comp(priv->conn, &wc) < 0)
+    {
+        printf("Failure reading from server.\n");
+        rdma_disconnect(priv->conn);
+        kiro_destroy_connection_context(ctx);
+        rdma_destroy_ep(priv->conn);
+        return -1;
+    }
     
+    if(!kiro_trb_is_setup(priv->buffer))
+    {
+        //First time setup
+        kiro_trb_ingest(priv->buffer, ctx->rdma_mr->mem);
+    }
+    else
+    {
+        //Refresh
+        kiro_trb_refresh(priv->buffer);
+    }
     
-    printf("Connected to server.\n");
-    return 0;
-    
-}
-
-
-
-int kiro_client_sync (KiroClient *self)
-{
-    //PASS
+    printf("Buffer successfully read from server.\n");
     return 0;
 }
 

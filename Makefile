@@ -24,11 +24,11 @@ test: test-trb client server
 test-trb: kiro-trb.o test.c
 	$(CC) $(CFLAGS) $(LDFLAGS) test.c kiro-trb.o -o test-trb
 
-client: kiro-client.o test-client.c
-	$(CC) $(CFLAGS) $(LDFLAGS) test-client.c kiro-client.o -o client
+client: kiro-client.o kiro-trb.o test-client.c
+	$(CC) $(CFLAGS) $(LDFLAGS) test-client.c kiro-client.o kiro-trb.o -o client
 
-server: kiro-server.o test-server.c
-	$(CC) $(CFLAGS) $(LDFLAGS) test-server.c kiro-server.o -o server
+server: kiro-server.o kiro-trb.o test-server.c
+	$(CC) $(CFLAGS) $(LDFLAGS) test-server.c kiro-server.o kiro-trb.o -o server
 
 
 .PHONY : clean

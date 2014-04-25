@@ -76,7 +76,7 @@ GObject     kiro_server_new                 (void);
 
 /* server functions */
 
-int         kiro_server_start               (KiroServer*, char*, char*);
+int         kiro_server_start               (KiroServer* server, char* bind_addr, char* bind_port);
 
 G_END_DECLS
 
