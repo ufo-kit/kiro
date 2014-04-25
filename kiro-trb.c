@@ -48,9 +48,9 @@ struct _KiroTrbPrivate {
     /* 'Real' private structures */
     /* (Not accessible by properties) */
     int         initialized;    // 1 if Buffer is Valid, 0 otherwise
-    void*       mem;            // Access to the actual buffer in Memory
-    void*       frame_top;      // First byte of the buffer storage
-    void*       current;        // Pointer to the current fill state
+    void        *mem;            // Access to the actual buffer in Memory
+    void        *frame_top;      // First byte of the buffer storage
+    void        *current;        // Pointer to the current fill state
     uint64_t    element_size;   
     uint64_t    max_elements;
     uint64_t    iteration;      // How many times the buffer has wraped around
@@ -166,6 +166,13 @@ void kiro_trb_flush (KiroTrb *self)
 }
 
 
+int kiro_trb_is_setup (KiroTrb *self)
+{
+    KiroTrbPrivate* priv = KIRO_TRB_GET_PRIVATE(self);
+    return priv->initialized;
+}
+
+
 int kiro_trb_reshape (KiroTrb *self, uint64_t element_size, uint64_t element_count)
 {
     size_t new_size = (element_size * element_count) + sizeof(struct KiroTrbInfo);
@@ -194,22 +201,30 @@ int kiro_trb_push (KiroTrb *self, void *element_in)
         priv->current = priv->frame_top;
         priv->iteration++;
     }
+    write_header(priv);
     return 0;        
+}
+
+
+void kiro_trb_refresh (KiroTrb *self)
+{
+    KiroTrbPrivate* priv = KIRO_TRB_GET_PRIVATE(self);
+    struct KiroTrbInfo *tmp = (struct KiroTrbInfo *)priv->mem;
+    priv->buff_size = tmp->buffer_size_bytes;
+    priv->element_size = tmp->element_size;
+    priv->max_elements = (tmp->buffer_size_bytes - sizeof(struct KiroTrbInfo)) / tmp->element_size;
+    priv->iteration = tmp->offset / priv->max_elements;
+    priv->frame_top = priv->mem + sizeof(struct KiroTrbInfo);
+    priv->current = priv->frame_top + ((tmp->offset % priv->max_elements) * priv->element_size);
+    priv->initialized = 1;
 }
 
 
 void kiro_trb_ingest (KiroTrb *self, void *buff_in)
 {
     KiroTrbPrivate* priv = KIRO_TRB_GET_PRIVATE(self);
-    struct KiroTrbInfo *tmp = (struct KiroTrbInfo *)buff_in;
     if(priv->mem)
         free(priv->mem);
     priv->mem = buff_in;
-    priv->buff_size = tmp->buffer_size_bytes;
-    priv->element_size = tmp->element_size;
-    priv->max_elements = (tmp->buffer_size_bytes - sizeof(struct KiroTrbInfo)) / tmp->element_size;
-    priv->iteration = tmp->offset / priv->max_elements;
-    priv->frame_top = buff_in + sizeof(struct KiroTrbInfo);
-    priv->current = priv->frame_top + ((tmp->offset % priv->max_elements) * priv->element_size);
-    priv->initialized = 1;
+    kiro_trb_refresh(self);
 }

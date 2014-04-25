@@ -45,6 +45,7 @@ int main(void)
     printf("Stored in New: %x\n", *maman);
     sleep(1);
     g_object_unref(rb);
+    g_object_unref(rb2);
 
     return 0;
 }

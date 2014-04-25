@@ -86,25 +86,29 @@ GObject     kiro_trb_new                (void);
 
 /* trb functions */
 
-uint64_t    kiro_trb_get_element_count  (KiroTrb*);
+uint64_t    kiro_trb_get_element_count  (KiroTrb* trb);
 
-uint64_t    kiro_trb_get_element_size   (KiroTrb*);
+uint64_t    kiro_trb_get_element_size   (KiroTrb* trb);
 
-uint64_t    kiro_trb_get_max_elements   (KiroTrb*);
+uint64_t    kiro_trb_get_max_elements   (KiroTrb* trb);
 
-uint64_t    kiro_trb_get_raw_size       (KiroTrb*);
+uint64_t    kiro_trb_get_raw_size       (KiroTrb* trb);
 
-void*       kiro_trb_get_raw_buffer     (KiroTrb*);
+void*       kiro_trb_get_raw_buffer     (KiroTrb* trb);
 
-void*       kiro_trb_get_element        (KiroTrb*, uint64_t);
+void*       kiro_trb_get_element        (KiroTrb* trb, uint64_t index);
 
-void        kiro_trb_flush              (KiroTrb*);
+void        kiro_trb_flush              (KiroTrb* trb);
 
-int         kiro_trb_reshape            (KiroTrb*, uint64_t, uint64_t);
+int         kiro_trb_is_setup           (KiroTrb* trb);
 
-int         kiro_trb_push               (KiroTrb*, void*);
+int         kiro_trb_reshape            (KiroTrb* trb, uint64_t element_size, uint64_t element_count);
 
-void        kiro_trb_ingest             (KiroTrb*, void*);
+int         kiro_trb_push               (KiroTrb* trb, void* source);
+
+void        kiro_trb_refresh            (KiroTrb* trb);
+
+void        kiro_trb_ingest             (KiroTrb* trb, void* source);
 
 G_END_DECLS
 
