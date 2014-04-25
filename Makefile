@@ -5,13 +5,17 @@ LDFLAGS= -lrdmacm -libverbs -lpthread $(shell pkg-config --libs gobject-2.0)
 
 all: base
 
-base: kiro-trb.o kiro-client.o
+base: kiro-trb.o kiro-client.o kiro-server.o
 
 kiro-cbr.o: kiro-trb.c kiro-trb.h
 	$(CC) $(CFLAGS) $(LDFLAGS) -c kiro-trb.c -o kiro-trb.o
 
 kiro-client.o: kiro-client.c kiro-client.h
 	$(CC) $(CFLAGS) $(LDFLAGS) -c kiro-client.c -o kiro-client.o
+
+kiro-server.o: kiro-server.c kiro-server.h
+	$(CC) $(CFLAGS) $(LDFLAGS) -c kiro-server.c -o kiro-server.o
+
 
 
 test-trb: test
