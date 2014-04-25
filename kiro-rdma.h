@@ -77,7 +77,7 @@ struct kiro_rdma_mem {
 };
 
 
-static int kiro_register_rdma_memory (struct ibv_pd *pd, struct ibv_mr *mr, void *mem, size_t mem_size, int access)
+static int kiro_register_rdma_memory (struct ibv_pd *pd, struct ibv_mr **mr, void *mem, size_t mem_size, int access)
 {
     
     if(mem_size == 0)
@@ -97,8 +97,8 @@ static int kiro_register_rdma_memory (struct ibv_pd *pd, struct ibv_mr *mr, void
         return -1;
     }        
     
-    mr = ibv_reg_mr(pd, mem_handle, mem_size, access);
-    if(!mr)
+    *mr = ibv_reg_mr(pd, mem_handle, mem_size, access);
+    if(!(*mr))
     {
         // Memory Registration failed
         printf("Failed to register memory region!\n");
@@ -125,11 +125,15 @@ static struct kiro_rdma_mem* kiro_create_rdma_memory (struct ibv_pd *pd, size_t 
         return NULL;
     }
     
-    if(kiro_register_rdma_memory(pd, krm->mr, krm->mem, mem_size, access))
+    if(kiro_register_rdma_memory(pd, &(krm->mr), krm->mem, mem_size, access))
     {
         free(krm);
         return NULL;
     }
+    
+    if(!krm->mem)
+        krm->mem = krm->mr->addr;
+    
     
     return krm;
     

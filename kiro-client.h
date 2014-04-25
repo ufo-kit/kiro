@@ -77,7 +77,7 @@ GObject     kiro_client_new                 (void);
 /* client functions */
 
 
-int         kiro_client_connect             (KiroClient *, char *, char*, size_t);
+int         kiro_client_connect             (KiroClient *, char *, char*);
 
 int         kiro_client_sync                (KiroClient *);
 

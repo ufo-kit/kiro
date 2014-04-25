@@ -34,6 +34,8 @@
 #include "kiro-client.h"
 #include "kiro-rdma.h"
 
+#include <errno.h>
+
 
 /*
  * Definition of 'private' structures and members and macro to access them
@@ -79,7 +81,7 @@ kiro_client_class_init (KiroClientClass *klass)
 
 
 
-int kiro_client_connect (KiroClient *self, char *address, char* port, size_t timeout)
+int kiro_client_connect (KiroClient *self, char *address, char* port)
 {
     KiroClientPrivate *priv = KIRO_CLIENT_GET_PRIVATE(self);
 
@@ -94,9 +96,10 @@ int kiro_client_connect (KiroClient *self, char *address, char* port, size_t tim
     hints.ai_port_space = RDMA_PS_IB;
     if(rdma_getaddrinfo(address, port, &hints, &res_addrinfo))
     {
-        printf("Failed to resolve Route to server %s:%s\n",address, port);
+        printf("Failed to contruct address information for %s:%s\n",address, port);
         return -1;
     }
+    printf("Address information created.\n");
     
     struct ibv_qp_init_attr qp_attr;
     memset(&qp_attr, 0, sizeof(qp_attr));
@@ -107,12 +110,12 @@ int kiro_client_connect (KiroClient *self, char *address, char* port, size_t tim
     qp_attr.qp_context = priv->conn;
     qp_attr.sq_sig_all = 1;
     
-    
     if(rdma_create_ep(&(priv->conn), res_addrinfo, NULL, &qp_attr))
     {
-        printf("Endpoint creation failed.\n");
+        printf("Endpoint creation failed with error: %i\n", errno);
         return -1;
     }
+    printf("Route to server resolved.\n");
     
     struct kiro_connection_context *ctx = (struct kiro_connection_context *)calloc(1,sizeof(struct kiro_connection_context));
     if(!ctx)
@@ -144,9 +147,9 @@ int kiro_client_connect (KiroClient *self, char *address, char* port, size_t tim
     ctx->cf_mr_recv->size = ctx->cf_mr_send->size = sizeof(struct kiro_ctrl_msg);
     priv->conn->context = ctx;
     
-    if(!rdma_post_recv(priv->conn, priv->conn, ctx->cf_mr_recv->mem, ctx->cf_mr_recv->size, ctx->cf_mr_recv->mr))
+    if(rdma_post_recv(priv->conn, priv->conn, ctx->cf_mr_recv->mem, ctx->cf_mr_recv->size, ctx->cf_mr_recv->mr))
     {
-        printf("Posting preemtive receive for connection failed.\n");
+        printf("Posting preemtive receive for connection failed with error: %i\n", errno);
         kiro_destroy_connection_context(ctx);
         rdma_destroy_ep(priv->conn);
         return -1;
@@ -181,7 +184,7 @@ int kiro_client_connect (KiroClient *self, char *address, char* port, size_t tim
     //Create TRB, request RDMA from Server, call kiro_client_sync, ???, Profit!
     
     
-    printf("Connect to server.\n");
+    printf("Connected to server.\n");
     return 0;
     
 }

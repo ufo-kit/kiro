@@ -99,6 +99,7 @@ int kiro_server_start (KiroServer *self, char *address, char *port)
         printf("Failed to bind to address %s:%s\n",address, port);
         return -1;
     }
+    printf("Bound to address %s:%s\n",address, port);
     
     struct ibv_qp_init_attr qp_attr;
     memset(&qp_attr, 0, sizeof(qp_attr));
@@ -114,6 +115,7 @@ int kiro_server_start (KiroServer *self, char *address, char *port)
         printf("Endpoint creation failed.\n");
         return -1;
     }
+    printf("Endpoint created.\n");
     
     if(rdma_listen(priv->base, 0))
     {
@@ -121,6 +123,7 @@ int kiro_server_start (KiroServer *self, char *address, char *port)
         rdma_destroy_ep(priv->base);
         return -1;
     }
+    printf("Enpoint listening.\n");
     
     priv->client = (struct kiro_connection *)calloc(1, sizeof(struct kiro_connection));
     if(!priv->client)
@@ -131,12 +134,14 @@ int kiro_server_start (KiroServer *self, char *address, char *port)
     }
     priv->client->identifier = 0; //First Client
     
+    printf("Waiting for connection request.\n");
     if(rdma_get_request(priv->base, &(priv->client->id)))
     {
         printf("Failure waiting for clienet connection.\n");
         rdma_destroy_ep(priv->base);
         return -1;
     }
+    printf("Connection Request received.\n");
     
     struct kiro_connection_context *ctx = (struct kiro_connection_context *)calloc(1,sizeof(struct kiro_connection_context));
     if(!ctx)
@@ -174,7 +179,7 @@ int kiro_server_start (KiroServer *self, char *address, char *port)
     ctx->cf_mr_recv->size = ctx->cf_mr_send->size = sizeof(struct kiro_ctrl_msg);
     priv->client->id->context = ctx;
     
-    if(!rdma_post_recv(priv->client->id, priv->client, ctx->cf_mr_recv->mem, ctx->cf_mr_recv->size, ctx->cf_mr_recv->mr))
+    if(rdma_post_recv(priv->client->id, priv->client, ctx->cf_mr_recv->mem, ctx->cf_mr_recv->size, ctx->cf_mr_recv->mr))
     {
         printf("Posting preemtive receive for connection failed.\n");
         kiro_destroy_connection_context(ctx);
