@@ -115,7 +115,7 @@ int kiro_server_start (KiroServer *self, char *address, char *port)
         return -1;
     }
     
-    if(rdma_listen(priv->base, NULL))
+    if(rdma_listen(priv->base, 0))
     {
         printf("Failed to put server into listening state.\n");
         rdma_destroy_ep(priv->base);
