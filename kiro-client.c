@@ -226,7 +226,7 @@ int kiro_client_sync (KiroClient *self)
     if(!kiro_trb_is_setup(priv->buffer))
     {
         //First time setup
-        kiro_trb_ingest(priv->buffer, ctx->rdma_mr->mem);
+        kiro_trb_adopt(priv->buffer, ctx->rdma_mr->mem);
     }
     else
     {

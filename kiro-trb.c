@@ -163,6 +163,7 @@ void kiro_trb_flush (KiroTrb *self)
     KiroTrbPrivate* priv = KIRO_TRB_GET_PRIVATE(self);
     priv->iteration = 0;
     priv->current = priv->frame_top;
+    write_header(priv);
 }
 
 
@@ -182,7 +183,7 @@ int kiro_trb_reshape (KiroTrb *self, uint64_t element_size, uint64_t element_cou
     ((struct KiroTrbInfo *)newmem)->buffer_size_bytes = new_size;
     ((struct KiroTrbInfo *)newmem)->element_size = element_size;
     ((struct KiroTrbInfo *)newmem)->offset = 0;
-    kiro_trb_ingest(self, newmem);
+    kiro_trb_adopt(self, newmem);
     return 0;
 }
 
@@ -206,6 +207,25 @@ int kiro_trb_push (KiroTrb *self, void *element_in)
 }
 
 
+void* kiro_trb_dma_push (KiroTrb *self)
+{
+    KiroTrbPrivate* priv = KIRO_TRB_GET_PRIVATE(self);
+    if(priv->initialized != 1)
+        return -1;
+    if((priv->current + priv->element_size) > (priv->mem + priv->buff_size))
+        return -1;
+    void *mem_out = priv->current;
+    priv->current += priv->element_size;
+    if(priv->current >= priv->frame_top + (priv->element_size * priv->max_elements))
+    {
+        priv->current = priv->frame_top;
+        priv->iteration++;
+    }
+    write_header(priv);
+    return mem_out;        
+}
+
+
 void kiro_trb_refresh (KiroTrb *self)
 {
     KiroTrbPrivate* priv = KIRO_TRB_GET_PRIVATE(self);
@@ -220,11 +240,27 @@ void kiro_trb_refresh (KiroTrb *self)
 }
 
 
-void kiro_trb_ingest (KiroTrb *self, void *buff_in)
+void kiro_trb_adopt (KiroTrb *self, void *buff_in)
 {
     KiroTrbPrivate* priv = KIRO_TRB_GET_PRIVATE(self);
     if(priv->mem)
         free(priv->mem);
     priv->mem = buff_in;
     kiro_trb_refresh(self);
+}
+
+
+int kiro_trb_clone (KiroTrb *self, void *buff_in)
+{
+    KiroTrbPrivate* priv = KIRO_TRB_GET_PRIVATE(self);
+    struct KiroTrbInfo *header = (struct KiroTrbInfo *)buff_in;
+    void *newmem = malloc(header->buffer_size_bytes);
+    if(!newmem)
+        return -1;
+    memcpy(newmem, buff_in, header->buffer_size_bytes);
+    if(priv->mem)
+        free(priv->mem);
+    priv->mem = newmem;
+    kiro_trb_refresh(self);
+    return 0;
 }

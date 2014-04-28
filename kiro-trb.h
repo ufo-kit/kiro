@@ -94,9 +94,72 @@ uint64_t    kiro_trb_get_max_elements   (KiroTrb* trb);
 
 uint64_t    kiro_trb_get_raw_size       (KiroTrb* trb);
 
+
+/**
+ * kiro_trb_get_raw_buffer - Returns a pointer to the buffer memory
+ * @self: KIRO TRB to perform the operation on
+ * Description:
+ *   Returns a pointer to the memory structure of the given buffer.
+ * Notes:
+ *   The returned pointer points to the beginning of the internal
+ *   memory of the buffer, including all header information. The
+ *   user is responsible to ensure the consistency of any data
+ *   written to the memory and should call 'kiro_trb_refesh' in
+ *   case any header information was changed.
+ *   The pointed to memory might become invalid at any time by
+ *   concurrent access to the TRB, reshaping, adopting or cloning
+ *   a new memory block.
+ *   Under no circumstances might the memory pointed to by the returned
+ *   pointer be 'freed' by the user!
+ * See also:
+ *   kiro_trb_refesh, kiro_trb_reshape, kiro_trb_adopt, kiro_trb_clone
+ */
 void*       kiro_trb_get_raw_buffer     (KiroTrb* trb);
 
+
+/**
+ * kiro_trb_get_element - Returns a pointer to the element at the given
+ * index.
+ * @self: KIRO TRB to perform the operation on
+ * @index: Index of the element in the buffer to access
+ * Description:
+ *   Returns a pointer to the element in the buffer at the given index.
+ * Notes:
+ *   The returned pointer to the element is only guaranteed to be valid
+ *   immediately after the function call. The user is responsible to
+ *   ensure that no data is written to the returned memory. The
+ *   element pointed to might become invalid at any time by any concurrent
+ *   access to the buffer wraping around and overwriting the element or
+ *   changing the buffer memory entirely.
+ *   Under no circumstances might the memory pointed to by the returned
+ *   pointer be 'freed' by the user!
+ * See also:
+ *   kiro_trb_get_element_size, kiro_trb_get_raw_buffer
+ */
 void*       kiro_trb_get_element        (KiroTrb* trb, uint64_t index);
+
+
+/**
+ * kiro_trb_dma_push - Gives DMA to the next element and pushes the buffer
+ * @self: KIRO TRB to perform the operation on
+ * Description:
+ *   Returns a pointer to the next element in the buffer and increases
+ *   all internal counters and meta data as if an element was pushed
+ *   onto the buffer.
+ * Notes:
+ *   The returned pointer to the element is only guaranteed to be valid
+ *   immediately after the function call. The user is responsible to
+ *   ensure that no more data is written than 'element_size'. The
+ *   element pointed to might become invalid at any time by any concurrent
+ *   access to the buffer wraping around and overwriting the element or
+ *   changing the buffer memory entirely.
+ *   Under no circumstances might the memory pointed to by the returned
+ *   pointer be 'freed' by the user!
+ * See also:
+ *   kiro_trb_push, kiro_trb_get_element_size, kiro_trb_get_raw_buffer
+ */
+void*       kiro_trb_dma_push           (KiroTrb*);
+
 
 void        kiro_trb_flush              (KiroTrb* trb);
 
@@ -104,11 +167,13 @@ int         kiro_trb_is_setup           (KiroTrb* trb);
 
 int         kiro_trb_reshape            (KiroTrb* trb, uint64_t element_size, uint64_t element_count);
 
+int         kiro_trb_clone              (KiroTrb* trb, void* source);
+
 int         kiro_trb_push               (KiroTrb* trb, void* source);
 
 void        kiro_trb_refresh            (KiroTrb* trb);
 
-void        kiro_trb_ingest             (KiroTrb* trb, void* source);
+void        kiro_trb_adopt              (KiroTrb* trb, void* source);
 
 G_END_DECLS
 

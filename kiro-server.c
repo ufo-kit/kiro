@@ -136,6 +136,9 @@ int kiro_server_start (KiroServer *self, char *address, char *port)
     }
     printf("Enpoint listening.\n");
     
+    
+    // ---> *SNIP*
+    
     priv->client = (struct kiro_connection *)calloc(1, sizeof(struct kiro_connection));
     if(!priv->client)
     {
