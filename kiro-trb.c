@@ -211,9 +211,9 @@ void* kiro_trb_dma_push (KiroTrb *self)
 {
     KiroTrbPrivate* priv = KIRO_TRB_GET_PRIVATE(self);
     if(priv->initialized != 1)
-        return -1;
+        return NULL;
     if((priv->current + priv->element_size) > (priv->mem + priv->buff_size))
-        return -1;
+        return NULL;
     void *mem_out = priv->current;
     priv->current += priv->element_size;
     if(priv->current >= priv->frame_top + (priv->element_size * priv->max_elements))
@@ -229,6 +229,8 @@ void* kiro_trb_dma_push (KiroTrb *self)
 void kiro_trb_refresh (KiroTrb *self)
 {
     KiroTrbPrivate* priv = KIRO_TRB_GET_PRIVATE(self);
+    if(priv->initialized != 1)
+        return;
     struct KiroTrbInfo *tmp = (struct KiroTrbInfo *)priv->mem;
     priv->buff_size = tmp->buffer_size_bytes;
     priv->element_size = tmp->element_size;
@@ -246,6 +248,7 @@ void kiro_trb_adopt (KiroTrb *self, void *buff_in)
     if(priv->mem)
         free(priv->mem);
     priv->mem = buff_in;
+    priv->initialized = 1;
     kiro_trb_refresh(self);
 }
 
@@ -261,6 +264,7 @@ int kiro_trb_clone (KiroTrb *self, void *buff_in)
     if(priv->mem)
         free(priv->mem);
     priv->mem = newmem;
+    priv->initialized = 1;
     kiro_trb_refresh(self);
     return 0;
 }
