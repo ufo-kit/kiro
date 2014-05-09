@@ -76,7 +76,30 @@ GObject     kiro_server_new                 (void);
 
 /* server functions */
 
-int         kiro_server_start               (KiroServer* server, char* bind_addr, char* bind_port);
+/**
+ * kiro_server_start - Starts the server, providing the given memory
+ * @server: KIRO SERVER to perform the operation on
+ * @bind_addr: Local address to bind the server to
+ * @bind_port: Local port to listen for connections
+ * @mem: Pointer to the memory that is to be provided
+ * @mem_size: Size in bytes of the given memory
+ * Description:
+ *   Starts the server to provide the given memory to any connecting
+ *   client.
+ * Notes:
+ *   If the bind_addr is NULL, the server will bind to the first device
+ *   it can find on the machine and listen across all IPs. Otherwise it
+ *   will try to bind to the device associated with the given address.
+ *   Address is given as a string of either a hostname or a dot-seperated
+ *   IPv4 address or a colon-seperated IPv6 hex-address.
+ *   If bind_port is NULL the server will choose a free port randomly
+ *   and return the chosen port as return value.
+ *   If server creation fails, -1 is returned instead.
+ * See also:
+ *   kiro_trb_reshape, kiro_trb_adopt,
+ *   kiro_trb_clone
+ */
+int kiro_server_start (KiroServer* server, char* bind_addr, char* bind_port, void* mem, size_t mem_size);
 
 G_END_DECLS
 

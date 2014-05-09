@@ -29,6 +29,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
+#include <arpa/inet.h>
 #include <rdma/rdma_verbs.h>
 #include <glib.h>
 #include "kiro-server.h"
@@ -52,8 +53,6 @@ struct _KiroServerPrivate {
     struct rdma_event_channel   *ec;        // Main Event Channel
     struct rdma_cm_id           *base;      // Base-Listening-Connection
     struct kiro_connection      *client;    // Connection to the client
-    KiroTrb                     *buffer;    // Memory Container
-    
 
 };
 
@@ -65,22 +64,15 @@ static void kiro_server_init (KiroServer *self)
 {
     KiroServerPrivate *priv = KIRO_SERVER_GET_PRIVATE(self);
     memset(priv, 0, sizeof(&priv));
-    
-    priv->buffer = g_object_new(KIRO_TYPE_TRB, NULL);
-    kiro_trb_reshape(priv->buffer, sizeof(uint64_t), 1000);
-    uint64_t a = 0xAFFED00F;
-    uint64_t b = 0x1337BEEF;
-    kiro_trb_push(priv->buffer, &a);
-    kiro_trb_push(priv->buffer, &b);
 }
+
 
 static void
 kiro_server_finalize (GObject *object)
 {
-    KiroServer *self = KIRO_SERVER(object);
-    KiroServerPrivate * priv = KIRO_SERVER_GET_PRIVATE(self);
-    g_object_unref(priv->buffer);
+    //PASS
 }
+
 
 static void
 kiro_server_class_init (KiroServerClass *klass)
@@ -90,8 +82,103 @@ kiro_server_class_init (KiroServerClass *klass)
 }
 
 
+static int connect_client (struct kiro_connection *client)
+{
+    struct kiro_connection_context *ctx = (struct kiro_connection_context *)calloc(1,sizeof(struct kiro_connection_context));
+    if(!ctx)
+    {
+        printf("Failed to create connection context.\n");
+        rdma_destroy_id(client->id);
+        return -1;
+    }
+    
+    ctx->cf_mr_send = (struct kiro_rdma_mem *)calloc(1, sizeof(struct kiro_rdma_mem));
+    ctx->cf_mr_recv = (struct kiro_rdma_mem *)calloc(1, sizeof(struct kiro_rdma_mem));
+    if(!ctx->cf_mr_recv || !ctx->cf_mr_send)
+    {
+        printf("Failed to allocate Control Flow Memory Container.\n");
+        goto error;
+    }
+    
+    ctx->cf_mr_recv = kiro_create_rdma_memory(client->id->pd, sizeof(struct kiro_ctrl_msg), IBV_ACCESS_LOCAL_WRITE);
+    ctx->cf_mr_send = kiro_create_rdma_memory(client->id->pd, sizeof(struct kiro_ctrl_msg), IBV_ACCESS_LOCAL_WRITE);
+    if(!ctx->cf_mr_recv || !ctx->cf_mr_send)
+    {
+        printf("Failed to register control message memory.\n");
+        goto error;
+    }
+    ctx->cf_mr_recv->size = ctx->cf_mr_send->size = sizeof(struct kiro_ctrl_msg);
+    client->id->context = ctx;
+    
+    if(rdma_post_recv(client->id, client, ctx->cf_mr_recv->mem, ctx->cf_mr_recv->size, ctx->cf_mr_recv->mr))
+    {
+        printf("Posting preemtive receive for connection failed.\n");
+        goto error;
+    }
+    
+    if(rdma_accept(client->id, NULL))
+    {
+        printf("Failed to establish connection to the server.\n");
+        goto error;
+    }
+    printf("Client Connected.\n");
+    return 0;
 
-int kiro_server_start (KiroServer *self, char *address, char *port)
+
+error:
+    rdma_reject(client->id, NULL, 0);
+    kiro_destroy_connection_context(&ctx);
+    rdma_destroy_id(client->id);
+    return -1;
+}
+
+
+static int welcome_client (struct kiro_connection *client, void *mem, size_t mem_size)
+{
+    struct kiro_connection_context *ctx = (struct kiro_connection_context *)(client->id->context);
+    ctx->rdma_mr = (struct kiro_rdma_mem *)calloc(1, sizeof(struct kiro_rdma_mem));
+    if(!ctx->rdma_mr)
+    {
+        printf("Failed to allocate RDMA Memory Container.\n");
+        return -1;
+    }
+    
+    ctx->rdma_mr->mem = mem;
+    ctx->rdma_mr->size = mem_size;
+    ctx->rdma_mr->mr = rdma_reg_read(client->id, ctx->rdma_mr->mem, ctx->rdma_mr->size);
+    if(!ctx->rdma_mr->mr)
+    {
+        printf("Failed to register RDMA Memory Region.\n");
+        kiro_destroy_rdma_memory(ctx->rdma_mr);
+        return -1;
+    }
+    
+    struct kiro_ctrl_msg *msg = (struct kiro_ctrl_msg *)(ctx->cf_mr_send->mem);
+    msg->msg_type = KIRO_ACK_RDMA;
+    msg->peer_mri = *(ctx->rdma_mr->mr);
+    
+    if(rdma_post_send(client->id, client, ctx->cf_mr_send->mem, ctx->cf_mr_send->size, ctx->cf_mr_send->mr, IBV_SEND_SIGNALED))
+    {
+        printf("Failure while trying to post SEND.\n");
+        kiro_destroy_rdma_memory(ctx->rdma_mr);
+        return -1;
+    }
+    
+    struct ibv_wc wc;
+    
+    if(rdma_get_send_comp(client->id, &wc) < 0)
+    {
+        printf("Failed to post RDMA MRI to client.\n");
+        kiro_destroy_rdma_memory(ctx->rdma_mr);
+        return -1;
+    }
+    printf("RDMA MRI sent to client.\n");
+
+    return 0;
+}
+
+
+int kiro_server_start (KiroServer *self, char *address, char *port, void* mem, size_t mem_size)
 {
     KiroServerPrivate *priv = KIRO_SERVER_GET_PRIVATE(self);
 
@@ -101,16 +188,21 @@ int kiro_server_start (KiroServer *self, char *address, char *port)
         return -1;
     }
     
+    if(!mem || mem_size == 0)
+    {
+        printf("Invalid memory given to provide.\n");
+        return -1;
+    }
+    
     struct rdma_addrinfo hints, *res_addrinfo;
     memset(&hints, 0, sizeof(hints));
     hints.ai_port_space = RDMA_PS_IB;
     hints.ai_flags = RAI_PASSIVE;
     if(rdma_getaddrinfo(address, port, &hints, &res_addrinfo))
     {
-        printf("Failed to bind to address %s:%s\n",address, port);
+        printf("Failed to create address information.");
         return -1;
     }
-    printf("Bound to address %s:%s\n",address, port);
     
     struct ibv_qp_init_attr qp_attr;
     memset(&qp_attr, 0, sizeof(qp_attr));
@@ -128,6 +220,25 @@ int kiro_server_start (KiroServer *self, char *address, char *port)
     }
     printf("Endpoint created.\n");
     
+    char *addr_local = NULL;
+    struct sockaddr* src_addr = rdma_get_local_addr(priv->base);
+    if(!src_addr)
+    {
+        addr_local = "NONE";
+    }
+    else
+    {
+        addr_local = inet_ntoa(((struct sockaddr_in *)src_addr)->sin_addr);
+        /*
+        if(src_addr->sa_family == AF_INET)
+            addr_local = &(((struct sockaddr_in*)src_addr)->sin_addr);
+        else
+            addr_local = &(((struct sockaddr_in6*)src_addr)->sin6_addr);
+        */
+    }
+    
+    printf("Bound to address %s:%s\n",addr_local, port);
+    
     if(rdma_listen(priv->base, 0))
     {
         printf("Failed to put server into listening state.\n");
@@ -137,13 +248,10 @@ int kiro_server_start (KiroServer *self, char *address, char *port)
     printf("Enpoint listening.\n");
     
     
-    // ---> *SNIP*
-    
     priv->client = (struct kiro_connection *)calloc(1, sizeof(struct kiro_connection));
-    if(!priv->client)
+    if(!(priv->client))
     {
         printf("Failed to create container for client connection.\n");
-        rdma_destroy_ep(priv->base);
         return -1;
     }
     priv->client->identifier = 0; //First Client
@@ -157,59 +265,20 @@ int kiro_server_start (KiroServer *self, char *address, char *port)
     }
     printf("Connection Request received.\n");
     
-    struct kiro_connection_context *ctx = (struct kiro_connection_context *)calloc(1,sizeof(struct kiro_connection_context));
-    if(!ctx)
+    
+    if(connect_client(priv->client))
     {
-        printf("Failed to create connection context.\n");
+        printf("Client connection failed!\n");
         rdma_destroy_ep(priv->base);
-        rdma_destroy_ep(priv->client->id);
         free(priv->client);
         return -1;
     }
     
-    ctx->cf_mr_send = (struct kiro_rdma_mem *)calloc(1, sizeof(struct kiro_rdma_mem));
-    ctx->cf_mr_recv = (struct kiro_rdma_mem *)calloc(1, sizeof(struct kiro_rdma_mem));
-    if(!ctx->cf_mr_recv || !ctx->cf_mr_send)
+    if(welcome_client(priv->client, mem, mem_size))
     {
-        printf("Failed to allocate Control Flow Memory Container.\n");
-        kiro_destroy_connection_context(ctx);
-        rdma_destroy_ep(priv->base);
-        rdma_destroy_ep(priv->client->id);
-        free(priv->client);
-        return -1;
-    }
-    
-    ctx->cf_mr_recv = kiro_create_rdma_memory(priv->client->id->pd, sizeof(struct kiro_ctrl_msg), IBV_ACCESS_LOCAL_WRITE);
-    ctx->cf_mr_send = kiro_create_rdma_memory(priv->client->id->pd, sizeof(struct kiro_ctrl_msg), IBV_ACCESS_LOCAL_WRITE);
-    if(!ctx->cf_mr_recv || !ctx->cf_mr_send)
-    {
-        printf("Failed to register control message memory.\n");
-        kiro_destroy_connection_context(ctx);
-        rdma_destroy_ep(priv->base);
-        rdma_destroy_ep(priv->client->id);
-        free(priv->client);
-        return -1;
-    }
-    ctx->cf_mr_recv->size = ctx->cf_mr_send->size = sizeof(struct kiro_ctrl_msg);
-    priv->client->id->context = ctx;
-    
-    if(rdma_post_recv(priv->client->id, priv->client, ctx->cf_mr_recv->mem, ctx->cf_mr_recv->size, ctx->cf_mr_recv->mr))
-    {
-        printf("Posting preemtive receive for connection failed.\n");
-        kiro_destroy_connection_context(ctx);
-        rdma_destroy_ep(priv->base);
-        rdma_destroy_ep(priv->client->id);
-        free(priv->client);
-        return -1;
-    }
-    
-    if(rdma_accept(priv->client->id, NULL))
-    {
-        printf("Failed to establish connection to the server.\n");
-        kiro_destroy_connection_context(ctx);
-        rdma_destroy_ep(priv->base);
-        rdma_destroy_ep(priv->client->id);
-        free(priv->client);
+        printf("Failed to setup client communication.\n");
+        kiro_destroy_connection(&(priv->client));
+        rdma_destroy_id(priv->base);
         return -1;
     }
     
@@ -224,85 +293,14 @@ int kiro_server_start (KiroServer *self, char *address, char *port)
     if(rdma_migrate_id(priv->base, priv->ec))
     {
         printf("Was unable to migrate connection to new Event Channel.\n");
-        rdma_disconnect(priv->client->id);
-        kiro_destroy_connection_context(ctx);
-        rdma_destroy_ep(priv->base);
-        rdma_destroy_ep(priv->client->id);
-        free(priv->client);
+        kiro_destroy_connection(&(priv->client));
+        rdma_destroy_id(priv->base);
         return -1;
     }
     
-    printf("Client Connected.\n");
-    
-        
-    ctx->rdma_mr = (struct kiro_rdma_mem *)calloc(1, sizeof(struct kiro_rdma_mem));
-    if(!ctx->rdma_mr)
-    {
-        printf("Failed to allocate RDMA Memory Container.\n");
-        rdma_disconnect(priv->client->id);
-        kiro_destroy_connection_context(ctx);
-        rdma_destroy_ep(priv->base);
-        rdma_destroy_ep(priv->client->id);
-        free(priv->client);
-        return -1;
-    }
-    
-    ctx->rdma_mr->mem = kiro_trb_get_raw_buffer(priv->buffer);
-    ctx->rdma_mr->size = kiro_trb_get_raw_size(priv->buffer);
-    ctx->rdma_mr->mr = rdma_reg_read(priv->client->id, ctx->rdma_mr->mem, ctx->rdma_mr->size);
-    if(!ctx->rdma_mr->mr)
-    {
-        printf("Failed to register RDMA Memory Region.\n");
-        rdma_disconnect(priv->client->id);
-        kiro_destroy_connection_context(ctx);
-        rdma_destroy_ep(priv->base);
-        rdma_destroy_ep(priv->client->id);
-        free(priv->client);
-        return -1;
-    }
-    
-    struct kiro_ctrl_msg *msg = (struct kiro_ctrl_msg *)(ctx->cf_mr_send->mem);
-    msg->msg_type = KIRO_ACK_RDMA;
-    msg->peer_mri = *(ctx->rdma_mr->mr);
-    
-    if(rdma_post_send(priv->client->id, priv->client, ctx->cf_mr_send->mem, ctx->cf_mr_send->size, ctx->cf_mr_send->mr, IBV_SEND_SIGNALED))
-    {
-        printf("Failure while trying to post SEND.\n");
-        rdma_disconnect(priv->client->id);
-        kiro_destroy_connection_context(ctx);
-        rdma_destroy_ep(priv->base);
-        rdma_destroy_ep(priv->client->id);
-        free(priv->client);
-        return -1;
-    }
-    
-    struct ibv_wc wc;
-    
-    if(rdma_get_send_comp(priv->client->id, &wc) < 0)
-    {
-        printf("Failed to post RDMA MRI to client.\n");
-        rdma_disconnect(priv->client->id);
-        kiro_destroy_connection_context(ctx);
-        rdma_destroy_ep(priv->base);
-        rdma_destroy_ep(priv->client->id);
-        free(priv->client);
-        return -1;
-    }
-    printf("RDMA MRI sent to client.\n");
     sleep(1);
     return 0;
 }
-
-
-
-int kiro_server_sync (KiroServer *self)
-{
-    //PASS
-    return 0;
-}
-
-
-
 
 
 

@@ -156,20 +156,52 @@ static void kiro_destroy_rdma_memory (struct kiro_rdma_mem *krm)
 }
 
 
-static void kiro_destroy_connection_context (struct kiro_connection_context *ctx)
+static void kiro_destroy_connection_context (struct kiro_connection_context **ctx)
 {
     if(!ctx)
         return;
+    
+    if(!(*ctx))
+        return;
         
-    if(ctx->cf_mr_recv)
-        kiro_destroy_rdma_memory(ctx->cf_mr_recv);
-    if(ctx->cf_mr_send)
-        kiro_destroy_rdma_memory(ctx->cf_mr_send);
-    if(ctx->rdma_mr)
-        kiro_destroy_rdma_memory(ctx->rdma_mr);
+    if((*ctx)->cf_mr_recv)
+        kiro_destroy_rdma_memory((*ctx)->cf_mr_recv);
+    if((*ctx)->cf_mr_send)
+        kiro_destroy_rdma_memory((*ctx)->cf_mr_send);
         
-    free(ctx);
-    ctx = NULL;
+    //The RDMA-Memory Region normally contains allocated memory from the USER that has
+    //just been 'registered' for RDMA. DON'T free it! Just deregister it. The user is
+    //responsible for freeing this memory. 
+    if((*ctx)->rdma_mr)
+    {
+        if((*ctx)->rdma_mr->mr)
+            ibv_dereg_mr((*ctx)->rdma_mr->mr);
+           
+        free((*ctx)->rdma_mr);
+        (*ctx)->rdma_mr = NULL;
+    }
+
+    free(*ctx);
+    *ctx = NULL;
+}
+
+
+static void kiro_destroy_connection (struct kiro_connection **conn)
+{
+    if(!(*conn))
+        return;
+    
+    if(!(*conn)->id)
+        return;
+        
+    rdma_disconnect((*conn)->id);
+    struct kiro_connection_context *ctx = (struct kiro_connection_context *)((*conn)->id->context);
+    if(ctx)
+        kiro_destroy_connection_context(&ctx);
+        
+    rdma_destroy_ep((*conn)->id);
+    free(*conn);
+    *conn = NULL;
 }
 
 

@@ -4,10 +4,16 @@
 #include "kiro-client.h"
 
 
-int main(void)
+int main ( int argc, char *argv[] )
 {
+    if (argc < 3)
+    {
+        printf("Not enough aruments. Usage: ./client <address> <port>\n");
+        return -1;
+    }
     KiroClient *client = g_object_new(KIRO_TYPE_CLIENT, NULL);
-    kiro_client_connect(client, "192.168.11.61", "60010");
-    kiro_client_sync(client);
-    return 0; 
+    if(-1 != kiro_client_connect(client, argv[1], argv[2]))
+        kiro_client_sync(client);
+    g_object_unref(client);
+    return 0;
 }

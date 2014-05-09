@@ -81,6 +81,9 @@ int         kiro_client_connect             (KiroClient* client, char* dest_addr
 
 int         kiro_client_sync                (KiroClient* client);
 
+void*       kiro_client_get_memory          (KiroClient* client);
+
+size_t      kior_client_get_memory_size     (KiroClient* client);
 
 G_END_DECLS
 

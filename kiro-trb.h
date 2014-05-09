@@ -282,7 +282,7 @@ int kiro_trb_clone (KiroTrb* trb, void* source);
  *   In case of failure, no internal memory will change as if the
  *   call to kiro_trb_push has never happened.
  * See also:
- *   kiro_trb_push_dma, kiro_trb_get_element_size, kiro_trb_clone,
+ *   kiro_trb_dma_push, kiro_trb_get_element_size, kiro_trb_clone,
  *   kiro_trb_adopt
  */
 int kiro_trb_push (KiroTrb* trb, void* source);

@@ -53,9 +53,7 @@ struct _KiroClientPrivate {
     /* (Not accessible by properties) */
     struct rdma_event_channel   *ec;        // Main Event Channel
     struct rdma_cm_id           *conn;      // Connection to the Server
-    KiroTrb                     *buffer;    // Ring Buffer used to hold data from server
     
-
 };
 
 
@@ -66,7 +64,6 @@ static void kiro_client_init (KiroClient *self)
 {
     KiroClientPrivate *priv = KIRO_CLIENT_GET_PRIVATE(self);
     memset(priv, 0, sizeof(&priv));
-    priv->buffer = g_object_new(KIRO_TYPE_TRB, NULL);
 }
 
 static void
@@ -74,7 +71,7 @@ kiro_client_finalize (GObject *object)
 {
     KiroClient *self = KIRO_CLIENT(object);
     KiroClientPrivate * priv = KIRO_CLIENT_GET_PRIVATE(self);
-    g_object_unref(priv->buffer);
+    //PASS
 }
 
 static void
@@ -135,7 +132,7 @@ int kiro_client_connect (KiroClient *self, char *address, char* port)
     if(!ctx->cf_mr_recv || !ctx->cf_mr_send)
     {
         printf("Failed to allocate Control Flow Memory Container.\n");
-        kiro_destroy_connection_context(ctx);
+        kiro_destroy_connection_context(&ctx);
         rdma_destroy_ep(priv->conn);
         return -1;
     }
@@ -145,7 +142,7 @@ int kiro_client_connect (KiroClient *self, char *address, char* port)
     if(!ctx->cf_mr_recv || !ctx->cf_mr_send)
     {
         printf("Failed to register control message memory.\n");
-        kiro_destroy_connection_context(ctx);
+        kiro_destroy_connection_context(&ctx);
         rdma_destroy_ep(priv->conn);
         return -1;
     }
@@ -155,7 +152,7 @@ int kiro_client_connect (KiroClient *self, char *address, char* port)
     if(rdma_post_recv(priv->conn, priv->conn, ctx->cf_mr_recv->mem, ctx->cf_mr_recv->size, ctx->cf_mr_recv->mr))
     {
         printf("Posting preemtive receive for connection failed with error: %i\n", errno);
-        kiro_destroy_connection_context(ctx);
+        kiro_destroy_connection_context(&ctx);
         rdma_destroy_ep(priv->conn);
         return -1;
     }
@@ -163,7 +160,7 @@ int kiro_client_connect (KiroClient *self, char *address, char* port)
     if(rdma_connect(priv->conn, NULL))
     {
         printf("Failed to establish connection to the server.\n");
-        kiro_destroy_connection_context(ctx);
+        kiro_destroy_connection_context(&ctx);
         rdma_destroy_ep(priv->conn);
         return -1;
     }
@@ -175,20 +172,20 @@ int kiro_client_connect (KiroClient *self, char *address, char* port)
     {
         printf("Failure waiting for POST from server.\n");
         rdma_disconnect(priv->conn);
-        kiro_destroy_connection_context(ctx);
+        kiro_destroy_connection_context(&ctx);
         rdma_destroy_ep(priv->conn);
         return -1;
     }
     printf("Got Message from Server.\n");
     ctx->peer_mr = (((struct kiro_ctrl_msg *)(ctx->cf_mr_recv->mem))->peer_mri);
-    printf("Expected TRB Size is: %u\n",ctx->peer_mr.length);
+    printf("Expected Memory Size is: %u\n",ctx->peer_mr.length);
     
     ctx->rdma_mr = kiro_create_rdma_memory(priv->conn->pd, ctx->peer_mr.length, IBV_ACCESS_LOCAL_WRITE);
     if(!ctx->rdma_mr)
     {
         printf("Failed to allocate memory for receive buffer.\n");
         rdma_disconnect(priv->conn);
-        kiro_destroy_connection_context(ctx);
+        kiro_destroy_connection_context(&ctx);
         rdma_destroy_ep(priv->conn);
         return -1;
     }
@@ -208,7 +205,7 @@ int kiro_client_sync (KiroClient *self)
     {
         printf("Failed to read from server.\n");
         rdma_disconnect(priv->conn);
-        kiro_destroy_connection_context(ctx);
+        kiro_destroy_connection_context(&ctx);
         rdma_destroy_ep(priv->conn);
         return -1;
     }
@@ -218,30 +215,42 @@ int kiro_client_sync (KiroClient *self)
     {
         printf("Failure reading from server.\n");
         rdma_disconnect(priv->conn);
-        kiro_destroy_connection_context(ctx);
+        kiro_destroy_connection_context(&ctx);
         rdma_destroy_ep(priv->conn);
         return -1;
     }
     
-    if(!kiro_trb_is_setup(priv->buffer))
-    {
-        //First time setup
-        kiro_trb_adopt(priv->buffer, ctx->rdma_mr->mem);
-    }
-    else
-    {
-        //Refresh
-        kiro_trb_refresh(priv->buffer);
-    }
-    
-    printf("Buffer successfully read from server.\n");
+    printf("Memory successfully read from server.\n");
     return 0;
 }
 
 
+void* kiro_client_get_memory (KiroClient *self)
+{
+    KiroClientPrivate *priv = KIRO_CLIENT_GET_PRIVATE(self);
+    if(!priv->conn)
+        return NULL;
+
+    struct kiro_connection_context *ctx = (struct kiro_connection_context *)priv->conn->context;
+    if(!ctx->rdma_mr)
+        return NULL;
+        
+    return ctx->rdma_mr->mem;
+}
 
 
+size_t kiro_client_get_memory_size (KiroClient *self)
+{
+    KiroClientPrivate *priv = KIRO_CLIENT_GET_PRIVATE(self);
+    if(!priv->conn)
+        return 0;
 
+    struct kiro_connection_context *ctx = (struct kiro_connection_context *)priv->conn->context;
+    if(!ctx->rdma_mr)
+        return 0;
+        
+    return ctx->rdma_mr->size;
+}
 
 
 
