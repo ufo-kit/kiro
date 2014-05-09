@@ -118,7 +118,7 @@ print_current_frame (gchar *buffer, guint number, guint width, guint height, GRa
     //pattern
     for (guint y = 16; y < height; y++) {
         guint index = y * width;
-        memcpy(&buffer[index], &default_line[0], width);
+        memcpy(buffer+index, &default_line[0], width);
     }
 
     //This block will fill a square at the center of the image with normal
@@ -143,7 +143,7 @@ int main(void)
 {
     KiroServer *server = g_object_new(KIRO_TYPE_SERVER, NULL);
     KiroTrb *rb = g_object_new(KIRO_TYPE_TRB, NULL);
-    kiro_trb_reshape(rb, 512*512, 1000);
+    kiro_trb_reshape(rb, 512*512, 15);
     GRand *rand = g_rand_new();
     if(0 > kiro_server_start(server, NULL, "60010", kiro_trb_get_raw_buffer(rb), kiro_trb_get_raw_size(rb)))
     {
@@ -152,9 +152,11 @@ int main(void)
     }
 
     guint frame = 0;
+    gchar *buffer = NULL;
     while(1)
     {
-        print_current_frame(kiro_trb_dma_push(rb), frame, 512, 512, rand);
+        buffer = kiro_trb_dma_push(rb);
+        print_current_frame(buffer, frame, 512, 512, rand);
         frame++;
     }
     

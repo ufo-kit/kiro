@@ -219,8 +219,6 @@ int kiro_client_sync (KiroClient *self)
         rdma_destroy_ep(priv->conn);
         return -1;
     }
-    
-    printf("Memory successfully read from server.\n");
     return 0;
 }
 

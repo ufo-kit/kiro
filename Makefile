@@ -1,6 +1,6 @@
 CC=gcc
 CFLAGS=-std=c99 -Wall -g -gdwarf-2 $(shell pkg-config --cflags gobject-2.0)
-LDFLAGS=-lm -lrdmacm -libverbs -lpthread $(shell pkg-config --libs gobject-2.0)
+LDFLAGS=-lSDL -lm -lrdmacm -libverbs -lpthread $(shell pkg-config --libs gobject-2.0)
 
 
 .PHONY : all
