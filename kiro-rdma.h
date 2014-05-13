@@ -77,6 +77,32 @@ struct kiro_rdma_mem {
 };
 
 
+static int kiro_attach_qp (struct rdma_cm_id *id)
+{
+    if(!id)
+        return -1;
+    
+    id->pd = ibv_alloc_pd(id->verbs);
+    id->send_cq_channel = ibv_create_comp_channel(id->verbs);
+    id->recv_cq_channel = id->send_cq_channel; //we use one shared completion channel
+    id->send_cq = ibv_create_cq(id->verbs, 1, id, id->send_cq_channel, 0);
+    id->recv_cq = id->send_cq; //we use one shared completion queue
+    
+    struct ibv_qp_init_attr qp_attr;
+    memset(&qp_attr, 0, sizeof(struct ibv_qp_init_attr));
+    qp_attr.qp_context = (uintptr_t)id;
+    qp_attr.send_cq = id->send_cq;
+    qp_attr.recv_cq = id->recv_cq;
+    qp_attr.qp_type = IBV_QPT_RC;
+    qp_attr.cap.max_send_wr = 1;
+    qp_attr.cap.max_recv_wr = 1;
+    qp_attr.cap.max_send_sge = 1;
+    qp_attr.cap.max_recv_sge = 1;
+    
+    return rdma_create_qp(id, id->pd, &qp_attr);
+}
+
+
 static int kiro_register_rdma_memory (struct ibv_pd *pd, struct ibv_mr **mr, void *mem, size_t mem_size, int access)
 {
     
@@ -186,21 +212,17 @@ static void kiro_destroy_connection_context (struct kiro_connection_context **ct
 }
 
 
-static void kiro_destroy_connection (struct kiro_connection **conn)
+static void kiro_destroy_connection (struct rdma_cm_id **conn)
 {
     if(!(*conn))
         return;
-    
-    if(!(*conn)->id)
-        return;
         
-    rdma_disconnect((*conn)->id);
-    struct kiro_connection_context *ctx = (struct kiro_connection_context *)((*conn)->id->context);
+    rdma_disconnect(*conn);
+    struct kiro_connection_context *ctx = (struct kiro_connection_context *)((*conn)->context);
     if(ctx)
         kiro_destroy_connection_context(&ctx);
         
-    rdma_destroy_ep((*conn)->id);
-    free(*conn);
+    rdma_destroy_ep(*conn);
     *conn = NULL;
 }
 

@@ -38,9 +38,13 @@ int main ( int argc, char *argv[] )
         return -1;
     }
     KiroClient *client = g_object_new(KIRO_TYPE_CLIENT, NULL);
-    if(-1 != kiro_client_connect(client, argv[1], argv[2]))
-        kiro_client_sync(client);
+    if(-1 == kiro_client_connect(client, argv[1], argv[2]))
+    {
+        g_object_unref(client);
+        return -1;
+    }
     
+    kiro_client_sync(client);
     KiroTrb *trb = g_object_new(KIRO_TYPE_TRB, NULL);
     kiro_trb_adopt(trb, kiro_client_get_memory(client));
     
@@ -67,7 +71,7 @@ int main ( int argc, char *argv[] )
     
     int cont = 1;
     
-    struct KiroTrbInfo *header = (struct KiroTrbInfo *)kiro_trb_get_raw_buffer(trb);
+    //struct KiroTrbInfo *header = (struct KiroTrbInfo *)kiro_trb_get_raw_buffer(trb);
     
     while(cont)
     {

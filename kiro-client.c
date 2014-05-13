@@ -69,8 +69,8 @@ static void kiro_client_init (KiroClient *self)
 static void
 kiro_client_finalize (GObject *object)
 {
-    KiroClient *self = KIRO_CLIENT(object);
-    KiroClientPrivate * priv = KIRO_CLIENT_GET_PRIVATE(self);
+    //KiroClient *self = KIRO_CLIENT(object);
+    //KiroClientPrivate * priv = KIRO_CLIENT_GET_PRIVATE(self);
     //PASS
 }
 
