@@ -1,0 +1,10 @@
+prefix=@LIBKIRO_PKG_PREFIX@
+exec_prefix=@LIBKIRO_PKG_EXEC_PREFIX@
+libdir=@LIBKIRO_PKG_LIBDIR@
+includedir=@LIBKIRO_PKG_INCLUDEDIR@
+
+Name: @TARNAME@
+Description: @LIBKIRO_DESCRIPTION_SUMMARY@
+Version: @LIBKIRO_ABI_VERSION@
+Libs: -L${libdir} -lkiro
+Cflags: -I${includedir}

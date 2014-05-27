@@ -35,7 +35,7 @@ else()
   set(LIB_INSTALL_DIR "lib")
 endif()
 
-set(HEADER_INSTALL_DIR include/LIBKIRO)
+set(HEADER_INSTALL_DIR include/kiro)
 
 add_subdirectory(src)
 
@@ -63,6 +63,9 @@ set(LIBKIRO_PKG_EXEC_PREFIX "${LIBKIRO_PKG_PREFIX}/bin")
 set(LIBKIRO_PKG_LIBDIR "${CMAKE_INSTALL_PREFIX}/${LIB_INSTALL_DIR}")
 set(LIBKIRO_PKG_INCLUDEDIR "${LIBKIRO_PKG_PREFIX}/include")
 
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/LIBKIRO.pc DESTINATION ${LIB_INSTALL_DIR}/pkgconfig)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/src/kiro.pc.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/kiro.pc" @ONLY IMMEDIATE)
+
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/kiro.pc DESTINATION ${LIB_INSTALL_DIR}/pkgconfig)
 
 include(CPack)
