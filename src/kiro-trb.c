@@ -167,6 +167,22 @@ void kiro_trb_flush (KiroTrb *self)
 }
 
 
+void kiro_trb_purge (KiroTrb* self, gboolean free_memory)
+{
+    KiroTrbPrivate *priv = KIRO_TRB_GET_PRIVATE(self);
+    priv->iteration = 0;
+    priv->current = NULL;
+    priv->initialized = 0;
+    priv->max_elements = 0;
+    priv->buff_size = 0;
+    priv->frame_top = NULL;
+    priv->element_size = 0;
+    if(free_memory)
+        free(priv->mem);
+    priv->mem = NULL;
+}
+
+
 int kiro_trb_is_setup (KiroTrb *self)
 {
     KiroTrbPrivate* priv = KIRO_TRB_GET_PRIVATE(self);
@@ -176,6 +192,8 @@ int kiro_trb_is_setup (KiroTrb *self)
 
 int kiro_trb_reshape (KiroTrb *self, uint64_t element_size, uint64_t element_count)
 {
+    if(element_size < 1 || element_count < 1)
+        return -1;
     size_t new_size = (element_size * element_count) + sizeof(struct KiroTrbInfo);
     void* newmem = malloc(new_size);
     if(!newmem)
@@ -244,6 +262,8 @@ void kiro_trb_refresh (KiroTrb *self)
 
 void kiro_trb_adopt (KiroTrb *self, void *buff_in)
 {
+    if(!buff_in)
+        return;
     KiroTrbPrivate* priv = KIRO_TRB_GET_PRIVATE(self);
     if(priv->mem)
         free(priv->mem);

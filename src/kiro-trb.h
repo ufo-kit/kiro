@@ -86,8 +86,9 @@ GObject     kiro_trb_new                (void);
 /* trb functions */
 
 /**
- * kiro_trb_get_element_size - Returns the element size in bytes
- * @trb: KIRO TRB to perform the operation on
+ * kiro_trb_get_element_size:
+ * Returns the element size in bytes
+ * @trb: #KiroTrb to perform the operation on
  * Description:
  *   Returns the size of the individual elements in the buffer
  * See also:
@@ -96,8 +97,9 @@ GObject     kiro_trb_new                (void);
 uint64_t kiro_trb_get_element_size (KiroTrb* trb);
 
 /**
- * kiro_trb_get_max_elements - Returns the capacity of the buffer
- * @trb: KIRO TRB to perform the operation on
+ * kiro_trb_get_max_elements: 
+ * Returns the capacity of the buffer
+ * @trb: #KiroTrb to perform the operation on
  * Description:
  *   Returns the mximal number of elements that can be stored in
  *   the buffer
@@ -109,8 +111,9 @@ uint64_t kiro_trb_get_max_elements (KiroTrb* trb);
 
 
 /**
- * kiro_trb_get_raw_size - Returns the size of the buffer memory
- * @trb: KIRO TRB to perform the operation on
+ * kiro_trb_get_raw_size: 
+ * Returns the size of the buffer memory
+ * @trb: #KiroTrb to perform the operation on
  * Description:
  *   Returns the size of the buffers internal memory
  * Notes:
@@ -124,10 +127,11 @@ uint64_t kiro_trb_get_raw_size (KiroTrb* trb);
 
 
 /**
- * kiro_trb_get_raw_buffer - Returns a pointer to the buffer memory
- * @trb: KIRO TRB to perform the operation on
+ * kiro_trb_get_raw_buffer: 
+ * @trb: #KiroTrb to perform the operation on
  * Description:
  *   Returns a pointer to the memory structure of the given buffer.
+ * Returns: (transfer none): a pointer to the buffer memory
  * Notes:
  *   The returned pointer points to the beginning of the internal
  *   memory of the buffer, including all header information. The
@@ -148,12 +152,12 @@ void* kiro_trb_get_raw_buffer (KiroTrb* trb);
 
 
 /**
- * kiro_trb_get_element - Returns a pointer to the element at the given
- * index.
- * @trb: KIRO TRB to perform the operation on
+ * kiro_trb_get_element: 
+ * @trb: #KiroTrb to perform the operation on
  * @index: Index of the element in the buffer to access
  * Description:
  *   Returns a pointer to the element in the buffer at the given index.
+ * Returns: (transfer none): a pointer to the element at the given index.
  * Notes:
  *   The returned pointer to the element is only guaranteed to be valid
  *   immediately after the function call. The user is responsible to
@@ -172,12 +176,14 @@ void* kiro_trb_get_element (KiroTrb* trb, uint64_t index);
 
 
 /**
- * kiro_trb_dma_push - Gives DMA to the next element and pushes the buffer
- * @trb: KIRO TRB to perform the operation on
+ * kiro_trb_dma_push: 
+ * Gives DMA to the next element and pushes the buffer
+ * @trb: #KiroTrb to perform the operation on
  * Description:
  *   Returns a pointer to the next element in the buffer and increases
  *   all internal counters and meta data as if an element was pushed
  *   onto the buffer.
+ * Returns: (transfer none): Pointer to the bginning of element memory
  * Notes:
  *   The returned pointer to the element is only guaranteed to be valid
  *   immediately after the function call. The user is responsible to
@@ -192,15 +198,15 @@ void* kiro_trb_get_element (KiroTrb* trb, uint64_t index);
  * See also:
  *   kiro_trb_push, kiro_trb_get_element_size, kiro_trb_get_raw_buffer
  */
-void* kiro_trb_dma_push (KiroTrb*);
+void* kiro_trb_dma_push (KiroTrb* trb);
 
 
 /**
- * kiro_trb_flush - Resets the buffer
- * @trb: KIRO TRB to perform the operation on
+ * kiro_trb_flush: 
+ * Flushes the buffer
+ * @trb: #KiroTrb to perform the operation on
  * Description:
- *   Resets the internal buffer structures so the buffer is
- *   'empty' again.
+ *   Flushes the internal buffer so the buffer is 'empty' again.
  * Notes:
  *   The underlying memory is not cleared, freed or rewritten.
  *   Only the header is rewritten and the internal pointer and
@@ -212,8 +218,28 @@ void kiro_trb_flush (KiroTrb* trb);
 
 
 /**
- * kiro_trb_is_setup - Returns the setup status of the buffer
- * @trb: KIRO TRB to perform the operation on
+ * kiro_trb_purge: 
+ * Completely resets the Buffer
+ * @trb: #KiroTrb to perform the operation on
+ * @free_memory: True = internal memory will be free()'d,
+ *               False = internal memory will be 'orphaned'
+ * Description:
+ *   Resets all internal structures so the TRB becomes
+ *   'uninitialized' again.
+ * Notes:
+ *   Depending on the 'free_memory' argument, any currently
+ *   held internal memory either gets free()'d or is simply
+ *   unreferenced and therfore 'orphaned'.
+ * See also:
+ *   kiro_trb_reshape, kiro_trb_adopt, kiro_trb_clone
+ */
+void kiro_trb_purge (KiroTrb* trb, gboolean free_memory);
+
+
+/**
+ * kiro_trb_is_setup: 
+ * Returns the setup status of the buffer
+ * @trb: #KiroTrb to perform the operation on
  * Description:
  *   Returns an integer designating of the buffer is ready to
  *   be used or needs to be 'reshaped' before it can accept data
@@ -228,8 +254,9 @@ int kiro_trb_is_setup (KiroTrb* trb);
 
 
 /**
- * kiro_trb_reshape - Reallocates internal memory and structures
- * @trb: KIRO TRB to perform the operation on
+ * kiro_trb_reshape: 
+ * Reallocates internal memory and structures
+ * @trb: #KiroTrb to perform the operation on
  * @element_size: Individual size of the elements to store in bytes
  * @element_count: Maximum number of elements to be stored
  * Description:
@@ -247,8 +274,9 @@ int kiro_trb_reshape (KiroTrb* trb, uint64_t element_size, uint64_t element_coun
 
 
 /**
- * kiro_trb_clone - Clones the given memory into the internal memory
- * @trb: KIRO TRB to perform the operation on
+ * kiro_trb_clone: 
+ * Clones the given memory into the internal memory
+ * @trb: #KiroTrb to perform the operation on
  * @source: Pointer to the source memory to clone from
  * Description:
  *   Interprets the given memory as a pointer to another KIRO TRB and
@@ -269,8 +297,9 @@ int kiro_trb_clone (KiroTrb* trb, void* source);
 
 
 /**
- * kiro_trb_push - Adds an element into the buffer
- * @trb: KIRO TRB to perform the operation on
+ * kiro_trb_push: 
+ * Adds an element into the buffer
+ * @trb: #KiroTrb to perform the operation on
  * @source: Pointer to the memory of the element to add
  * Description:
  *   Copies the given element and adds it into the buffer
@@ -289,8 +318,9 @@ int kiro_trb_push (KiroTrb* trb, void* source);
 
 
 /**
- * kiro_trb_refresh - Re-reads the TRBs memory header
- * @trb: KIRO TRB to perform the operation on
+ * kiro_trb_refresh: 
+ * Re-reads the TRBs memory header
+ * @trb: #KiroTrb to perform the operation on
  * Description:
  *   Re-reads the internal memory header and sets up all pointers
  *   and counters in accordance to these information
@@ -307,8 +337,9 @@ void kiro_trb_refresh (KiroTrb* trb);
 
 
 /**
- * kiro_trb_adopt - Adopts the given memory into the TRB
- * @trb: KIRO TRB to perform the operation on
+ * kiro_trb_adopt: 
+ * Adopts the given memory into the TRB
+ * @trb: #KiroTrb to perform the operation on
  * @source: Pointer to the source memory to adopt
  * Description:
  *   Interprets the given memory as a pointer to another KIRO TRB and
