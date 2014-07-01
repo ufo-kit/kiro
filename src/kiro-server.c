@@ -74,7 +74,10 @@ static void kiro_server_init (KiroServer *self)
 static void
 kiro_server_finalize (GObject *object)
 {
-    //PASS
+    KiroServer *self = KIRO_SERVER(object);
+    KiroServerPrivate *priv = KIRO_SERVER_GET_PRIVATE(self);
+    pthread_mutex_unlock(&(priv->mtx));
+    pthread_join(priv->event_listener, NULL);
 }
 
 
