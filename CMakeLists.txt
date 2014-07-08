@@ -16,6 +16,14 @@ set(LIBKIRO_ABI_VERSION "${LIBKIRO_VERSION_MAJOR}.${LIBKIRO_VERSION_MINOR}")
 
 set(LIBKIRO_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
+message(STATUS "checking for rdmacm-devel library")
+find_path(RDMACM_DIR rdma/rdma_verbs.h)
+if(NOT RDMACM_DIR)
+  message( FATAL_ERROR "rdma/rdma_verbs.h Not Found! Probably your version of rdmacm-devel is too old. (Needs to be 1.0.15 or newer)" )
+else()
+  message(STATUS "  found rdma/rdma_verbs.h")
+endif()
+
 find_package(PkgConfig)
 pkg_check_modules(GLIB2 glib-2.0>=2.24 REQUIRED)
 pkg_check_modules(GOBJECT2 gobject-2.0>=2.24 REQUIRED)
@@ -26,7 +34,7 @@ include_directories(
   ${GOBJECT2_INCLUDE_DIRS}
 )
 
-add_definitions(-Wall -Wextra -std=c99)
+add_definitions(-g -Wall -Wextra -std=c99)
 
 # check for 64 bit
 if (CMAKE_SIZEOF_VOID_P EQUAL 8)
