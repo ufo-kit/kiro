@@ -57,7 +57,7 @@ struct _KiroClientPrivate {
 };
 
 
-G_DEFINE_TYPE_WITH_PRIVATE (KiroClient, kiro_client, G_TYPE_OBJECT);
+G_DEFINE_TYPE (KiroClient, kiro_client, G_TYPE_OBJECT);
 
 
 static void kiro_client_init (KiroClient *self)
@@ -79,6 +79,7 @@ kiro_client_class_init (KiroClientClass *klass)
 {
     GObjectClass *gobject_class = G_OBJECT_CLASS(klass);
     gobject_class->finalize = kiro_client_finalize;
+    g_type_class_add_private(klass, sizeof(KiroClientPrivate));
 }
 
 

@@ -60,7 +60,7 @@ struct _KiroTrbPrivate {
 };
 
 
-G_DEFINE_TYPE_WITH_PRIVATE (KiroTrb, kiro_trb, G_TYPE_OBJECT);
+G_DEFINE_TYPE (KiroTrb, kiro_trb, G_TYPE_OBJECT);
 
 
 static
@@ -84,6 +84,7 @@ kiro_trb_class_init (KiroTrbClass *klass)
 {
     GObjectClass *gobject_class = G_OBJECT_CLASS(klass);
     gobject_class->finalize = kiro_trb_finalize;
+    g_type_class_add_private(klass, sizeof(KiroTrbPrivate));
 }
 
 

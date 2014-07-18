@@ -61,7 +61,7 @@ struct _KiroServerPrivate {
 };
 
 
-G_DEFINE_TYPE_WITH_PRIVATE (KiroServer, kiro_server, G_TYPE_OBJECT);
+G_DEFINE_TYPE (KiroServer, kiro_server, G_TYPE_OBJECT);
 
 
 static void kiro_server_init (KiroServer *self)
@@ -86,6 +86,7 @@ kiro_server_class_init (KiroServerClass *klass)
 {
     GObjectClass *gobject_class = G_OBJECT_CLASS(klass);
     gobject_class->finalize = kiro_server_finalize;
+    g_type_class_add_private(klass, sizeof(KiroServerPrivate));
 }
 
 
