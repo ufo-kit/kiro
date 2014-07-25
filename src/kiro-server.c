@@ -50,13 +50,14 @@ struct _KiroServerPrivate {
 
     /* 'Real' private structures */
     /* (Not accessible by properties) */
-    struct rdma_event_channel   *ec;            // Main Event Channel
-    struct rdma_cm_id           *base;          // Base-Listening-Connection
-    struct kiro_connection      *client;        // Connection to the client
-    pthread_t                   event_listener; // Pointer to the completion-listener thread of this connection
-    pthread_mutex_t             mtx;            // Mutex to signal the listener-thread termination
-    void                        *mem;           // Pointer to the server buffer
-    size_t                      mem_size;       // Server Buffer Size in bytes
+    struct rdma_event_channel   *ec;             // Main Event Channel
+    struct rdma_cm_id           *base;           // Base-Listening-Connection
+    struct kiro_connection      *client;         // Connection to the client
+    pthread_t                   event_listener;  // Pointer to the completion-listener thread of this connection
+    pthread_mutex_t             mtx;             // Mutex to signal the listener-thread termination
+    int                         close_signal;    // Integer flag used to signal to the listener-thread that the server is going to shut down
+    void                        *mem;            // Pointer to the server buffer
+    size_t                      mem_size;        // Server Buffer Size in bytes
 
 };
 
@@ -75,9 +76,9 @@ static void
 kiro_server_finalize (GObject *object)
 {
     KiroServer *self = KIRO_SERVER(object);
-    KiroServerPrivate *priv = KIRO_SERVER_GET_PRIVATE(self);
-    pthread_mutex_unlock(&(priv->mtx));
-    pthread_join(priv->event_listener, NULL);
+    
+    //Clean up the server
+    kiro_server_stop(self);
 }
 
 
@@ -201,11 +202,14 @@ void * event_loop (void *self)
     KiroServerPrivate *priv = KIRO_SERVER_GET_PRIVATE((KiroServer *)self);
     struct rdma_cm_event *active_event;
 
-    int stop = 0;
-
-    while(0 == stop) {
+    while(0 == priv->close_signal) {
         if(0 <= rdma_get_cm_event(priv->ec, &active_event))
         {
+            //Lock mutex to signal that this thread is currently handling an event
+            //and disable cancellation to prevent undefined states during shutdown
+            pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+            pthread_mutex_lock(&(priv->mtx));
+            
             
             struct rdma_cm_event *ev = malloc(sizeof(*active_event));
             if(!ev)
@@ -219,7 +223,15 @@ void * event_loop (void *self)
             
             if (ev->event == RDMA_CM_EVENT_CONNECT_REQUEST)
             {
-
+                
+                if (0 != priv->close_signal)
+                {
+                    //Main thread has signalled shutdown!
+                    //Don't connect this client any more
+                    //Sorry mate!
+                    rdma_reject(ev->id, NULL, 0);
+                }
+                                
                 /*
                 priv->client = (struct kiro_connection *)calloc(1, sizeof(struct kiro_connection));
                 if(!(priv->client))
@@ -242,16 +254,14 @@ void * event_loop (void *self)
             else if(ev->event == RDMA_CM_EVENT_DISCONNECTED)
             {
                 printf("Got disconnect request.\n");
-                //pthread_mutex_unlock(&(priv->mtx));
                 kiro_destroy_connection(&(ev->id));
                 printf("Connection closed successfully\n");
             }            
             free(ev);
         }
 
-        // Mutex will be freed as a signal to stop request
-        if(0 == pthread_mutex_trylock(&(priv->mtx)))
-            stop = 1;
+        pthread_mutex_unlock(&(priv->mtx));
+        pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     }
 
     printf("Closing Event Listener Thread\n");
@@ -332,14 +342,7 @@ int kiro_server_start (KiroServer *self, char *address, char *port, void* mem, s
     priv->mem = mem;
     priv->mem_size = mem_size;
 
-    priv->ec = rdma_create_event_channel();
-    int oldflags = fcntl (priv->ec->fd, F_GETFL, 0);
-    /* Only change the FD Mode if we were able to get its flags */
-    if (oldflags >= 0) {
-        oldflags |= O_NONBLOCK;
-        /* Store modified flag word in the descriptor. */
-        fcntl (priv->ec->fd, F_SETFL, oldflags);
-    }
+    priv->ec = rdma_create_event_channel();   
     if(rdma_migrate_id(priv->base, priv->ec))
     {
         printf("Was unable to migrate connection to new Event Channel.\n");
@@ -348,13 +351,44 @@ int kiro_server_start (KiroServer *self, char *address, char *port, void* mem, s
     }
 
     pthread_mutex_init(&(priv->mtx), NULL);
-    pthread_mutex_lock(&(priv->mtx));
     pthread_create(&(priv->event_listener), NULL, event_loop, self);
 
     printf("Enpoint listening.\n");
     
     sleep(1);
     return 0;
+}
+
+
+void
+kiro_server_stop (KiroServer *self)
+{
+    if(!self)
+        return;
+        
+    KiroServerPrivate *priv = KIRO_SERVER_GET_PRIVATE (self);
+    
+    if(!priv->base)
+        return;
+    
+    //Shut down the listener-thread
+    priv->close_signal = 1;
+    pthread_mutex_lock(&(priv->mtx));
+    pthread_cancel(priv->event_listener);
+    pthread_join(priv->event_listener, NULL);
+    printf("Event Listener Thread stopped.\n");
+    priv->close_signal = 0;
+    
+    /*
+     * FOR ALL PRIV->CLIENT : DISCONNECT
+     */
+     
+    rdma_destroy_ep(priv->base);
+    priv->base = NULL;
+    rdma_destroy_event_channel(priv->ec);
+    priv->ec = NULL;
+    
+    printf("Server stopped successfully.\n");
 }
 
 

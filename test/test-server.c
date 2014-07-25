@@ -160,9 +160,11 @@ int main(void)
         frame++;
     }
     
+    
 done:
     g_rand_free(rand);
     g_object_unref(rb);
+    g_object_unref(server);
 
     return 0; 
 }

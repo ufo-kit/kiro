@@ -78,13 +78,13 @@ GObject     kiro_server_new                 (void);
 
 /**
  * kiro_server_start - Starts the server, providing the given memory
- * @server: KIRO SERVER to perform the operation on
+ * @server: #KiroServer to perform the operation on
  * @bind_addr: Local address to bind the server to
  * @bind_port: Local port to listen for connections
  * @mem: Pointer to the memory that is to be provided
  * @mem_size: Size in bytes of the given memory
  * Description:
- *   Starts the server to provide the given memory to any connecting
+ *   Starts the #KiroServer to provide the given memory to any connecting
  *   client.
  * Notes:
  *   If the bind_addr is NULL, the server will bind to the first device
@@ -100,6 +100,16 @@ GObject     kiro_server_new                 (void);
  *   kiro_trb_clone
  */
 int kiro_server_start (KiroServer* server, char* bind_addr, char* bind_port, void* mem, size_t mem_size);
+
+/**
+ * kiro_server_stop - Stops the server
+ * @server: #KiroServer to perform the operation on
+ * Description:
+ *   Stops the given #KiroServer
+ * See also:
+ *   kiro_server_start
+ */
+void kiro_server_stop (KiroServer* server);
 
 G_END_DECLS
 
