@@ -54,7 +54,6 @@ struct _KiroServerPrivate {
     struct rdma_cm_id           *base;           // Base-Listening-Connection
     struct kiro_connection      *client;         // Connection to the client
     pthread_t                   event_listener;  // Pointer to the completion-listener thread of this connection
-    pthread_mutex_t             mtx;             // Mutex to signal the listener-thread termination
     int                         close_signal;    // Integer flag used to signal to the listener-thread that the server is going to shut down
     void                        *mem;            // Pointer to the server buffer
     size_t                      mem_size;        // Server Buffer Size in bytes
@@ -205,12 +204,9 @@ void * event_loop (void *self)
     while(0 == priv->close_signal) {
         if(0 <= rdma_get_cm_event(priv->ec, &active_event))
         {
-            //Lock mutex to signal that this thread is currently handling an event
-            //and disable cancellation to prevent undefined states during shutdown
+            //Disable cancellation to prevent undefined states during shutdown
             pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
-            pthread_mutex_lock(&(priv->mtx));
-            
-            
+                        
             struct rdma_cm_event *ev = malloc(sizeof(*active_event));
             if(!ev)
             {
@@ -260,7 +256,6 @@ void * event_loop (void *self)
             free(ev);
         }
 
-        pthread_mutex_unlock(&(priv->mtx));
         pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     }
 
@@ -350,7 +345,6 @@ int kiro_server_start (KiroServer *self, char *address, char *port, void* mem, s
         return -1;
     }
 
-    pthread_mutex_init(&(priv->mtx), NULL);
     pthread_create(&(priv->event_listener), NULL, event_loop, self);
 
     printf("Enpoint listening.\n");
@@ -373,7 +367,6 @@ kiro_server_stop (KiroServer *self)
     
     //Shut down the listener-thread
     priv->close_signal = 1;
-    pthread_mutex_lock(&(priv->mtx));
     pthread_cancel(priv->event_listener);
     pthread_join(priv->event_listener, NULL);
     printf("Event Listener Thread stopped.\n");
