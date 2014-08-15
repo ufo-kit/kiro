@@ -3,7 +3,7 @@ set_target_properties(kiro PROPERTIES
     VERSION "${LIBKIRO_VERSION_MAJOR}.${LIBKIRO_VERSION_MINOR}"
     SOVERSION ${LIBKIRO_VERSION_PATCH}
 )
-target_link_libraries(kiro SDL m rdmacm ibverbs pthread)
+target_link_libraries(kiro m rdmacm ibverbs pthread)
 
 install(FILES kiro-rdma.h kiro-trb.h kiro-client.h kiro-server.h DESTINATION ${HEADER_INSTALL_DIR})
 
