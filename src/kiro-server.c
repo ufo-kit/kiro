@@ -233,8 +233,6 @@ void * event_loop (void *self)
                     // Post a welcoming "Recieve" for handshaking
                     if (0 == welcome_client(ev->id, priv->mem, priv->mem_size)) {
                         // Connection set-up successfully! (Server)
-                        //new_client->id = ev->id;
-                        //new_client->identifier = priv->next_client_id;
                         struct kiro_connection_context *ctx = (struct kiro_connection_context *)(ev->id->context);
                         ctx->identifier = priv->next_client_id++;
                         priv->clients = g_list_append (priv->clients, (gpointer)ev->id);
@@ -358,6 +356,18 @@ int kiro_server_start (KiroServer *self, char *address, char *port, void* mem, s
 
 
 void
+disconnect_client (gpointer data, gpointer user_data)
+{
+    if (data) {
+        struct rdma_cm_id *id = (struct rdma_cm_id *)data;
+        struct kiro_connection_context *ctx = (struct kiro_connection_context *)(id->context);
+        printf ("Disconnecting client: %u.\n", ctx->identifier);
+        rdma_disconnect ((struct rdma_cm_id *) data);
+    }
+}
+
+
+void
 kiro_server_stop (KiroServer *self)
 {
     if(!self)
@@ -375,9 +385,8 @@ kiro_server_stop (KiroServer *self)
     printf("Event Listener Thread stopped.\n");
     priv->close_signal = 0;
     
-    /*
-     * FOR ALL PRIV->CLIENT : DISCONNECT
-     */
+    g_list_foreach (priv->clients, disconnect_client, NULL);
+    g_list_free (priv->clients);
      
     rdma_destroy_ep(priv->base);
     priv->base = NULL;
