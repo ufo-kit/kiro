@@ -46,15 +46,6 @@ struct kiro_connection_context {
 };
 
 
-struct kiro_connection {
-    
-    uint32_t                identifier;
-    struct rdma_cm_id       *id;
-    struct kiro_connection  *next;
-    
-};
-
-
 struct kiro_ctrl_msg {
     
     enum {

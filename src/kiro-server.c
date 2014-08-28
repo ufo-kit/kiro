@@ -52,7 +52,8 @@ struct _KiroServerPrivate {
     /* (Not accessible by properties) */
     struct rdma_event_channel   *ec;             // Main Event Channel
     struct rdma_cm_id           *base;           // Base-Listening-Connection
-    struct kiro_connection      *client;         // Connection to the client
+    GList                       *clients;        // List of connected clients
+    guint                       next_client_id;  // Numeric ID for the next client that will connect
     pthread_t                   event_listener;  // Pointer to the completion-listener thread of this connection
     int                         close_signal;    // Integer flag used to signal to the listener-thread that the server is going to shut down
     void                        *mem;            // Pointer to the server buffer
@@ -227,35 +228,37 @@ void * event_loop (void *self)
                     //Sorry mate!
                     rdma_reject(ev->id, NULL, 0);
                 }
-                                
-                /*
-                priv->client = (struct kiro_connection *)calloc(1, sizeof(struct kiro_connection));
-                if(!(priv->client))
-                {
-                    printf("Failed to create container for client connection.\n");
-                    free(ev);
-                    continue;
-                }
-                priv->client->identifier = 0; //First Client
-                priv->client->id = ev->id;
-                */
                 
-                if(0 == connect_client(ev->id))
-                {
-                    // Connection set-up successfully! (Server)
+                if(0 == connect_client(ev->id)) {
                     // Post a welcoming "Recieve" for handshaking
-                    welcome_client(ev->id, priv->mem, priv->mem_size);
+                    if (0 == welcome_client(ev->id, priv->mem, priv->mem_size)) {
+                        // Connection set-up successfully! (Server)
+                        //new_client->id = ev->id;
+                        //new_client->identifier = priv->next_client_id;
+                        struct kiro_connection_context *ctx = (struct kiro_connection_context *)(ev->id->context);
+                        ctx->identifier = priv->next_client_id++;
+                        priv->clients = g_list_append (priv->clients, (gpointer)ev->id);
+                        printf("Client id %u connected\n", ctx->identifier);
+                        printf("Currently %u clients in total are connected.\n", g_list_length (priv->clients));
+                    }
                 }
             }
             else if(ev->event == RDMA_CM_EVENT_DISCONNECTED)
             {
-                printf("Got disconnect request.\n");
+                GList *client = g_list_find (priv->clients, (gconstpointer) ev->id);
+                if (client) {
+                    struct kiro_connection_context *ctx = (struct kiro_connection_context *)(ev->id->context);
+                    printf ("Got disconnect request from client %s.\n", ctx->identifier);
+                    priv->clients = g_list_delete_link (priv->clients, client);
+                }
+                else
+                    printf("Got disconnect request from unknown client.\n");
+
                 kiro_destroy_connection(&(ev->id));
-                printf("Connection closed successfully\n");
+                printf("Connection closed successfully. %u connected clients remaining.\n", g_list_length (priv->clients));
             }            
             free(ev);
         }
-
         pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     }
 
@@ -303,7 +306,7 @@ int kiro_server_start (KiroServer *self, char *address, char *port, void* mem, s
     
     if(rdma_create_ep(&(priv->base), res_addrinfo, NULL, &qp_attr))
     {
-        printf("Endpoint creation failed.\n");
+        printf("Endpoint creation failed: %s.\n", strerror (errno));
         return -1;
     }
     printf("Endpoint created.\n");
