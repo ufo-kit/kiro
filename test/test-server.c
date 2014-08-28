@@ -141,8 +141,8 @@ print_current_frame (gchar *buffer, guint number, guint width, guint height, GRa
 
 int main(void)
 {
-    KiroServer *server = g_object_new(KIRO_TYPE_SERVER, NULL);
-    KiroTrb *rb = g_object_new(KIRO_TYPE_TRB, NULL);
+    KiroServer *server = kiro_server_new ();
+    KiroTrb *rb = kiro_trb_new ();
     kiro_trb_reshape(rb, 512*512, 15);
     GRand *rand = g_rand_new();
     if(0 > kiro_server_start(server, NULL, "60010", kiro_trb_get_raw_buffer(rb), kiro_trb_get_raw_size(rb)))

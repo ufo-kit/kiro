@@ -37,7 +37,7 @@ int main ( int argc, char *argv[] )
         printf("Not enough aruments. Usage: ./client <address> <port>\n");
         return -1;
     }
-    KiroClient *client = g_object_new(KIRO_TYPE_CLIENT, NULL);
+    KiroClient *client = kiro_client_new ();
     if(-1 == kiro_client_connect(client, argv[1], argv[2]))
     {
         g_object_unref(client);
@@ -45,7 +45,7 @@ int main ( int argc, char *argv[] )
     }
     
     kiro_client_sync(client);
-    KiroTrb *trb = g_object_new(KIRO_TYPE_TRB, NULL);
+    KiroTrb *trb = kiro_trb_new ();
     kiro_trb_adopt(trb, kiro_client_get_memory(client));
     
     _Bool ok =

@@ -70,9 +70,9 @@ struct _KiroServerClass {
 
 
 /* GObject and GType functions */
-GType       kiro_server_get_type            (void);
+GType        kiro_server_get_type            (void);
 
-GObject     kiro_server_new                 (void);
+KiroServer*  kiro_server_new                 (void);
 
 /* server functions */
 

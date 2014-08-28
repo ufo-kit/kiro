@@ -80,7 +80,7 @@ struct KiroTrbInfo {
 /* GObject and GType functions */
 GType       kiro_trb_get_type           (void);
 
-GObject     kiro_trb_new                (void);
+KiroTrb*    kiro_trb_new                (void);
 
 
 /* trb functions */

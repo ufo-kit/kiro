@@ -72,7 +72,7 @@ struct _KiroClientClass {
 /* GObject and GType functions */
 GType       kiro_client_get_type            (void);
 
-GObject     kiro_client_new                 (void);
+KiroClient* kiro_client_new                 (void);
 
 /* client functions */
 

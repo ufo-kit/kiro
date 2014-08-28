@@ -63,6 +63,12 @@ struct _KiroTrbPrivate {
 G_DEFINE_TYPE (KiroTrb, kiro_trb, G_TYPE_OBJECT);
 
 
+KiroTrb*
+kiro_trb_new (void) {
+    return g_object_new (KIRO_TYPE_TRB, NULL);
+}
+
+
 static
 void kiro_trb_init (KiroTrb *self)
 {

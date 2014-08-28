@@ -60,6 +60,12 @@ struct _KiroClientPrivate {
 G_DEFINE_TYPE (KiroClient, kiro_client, G_TYPE_OBJECT);
 
 
+KiroClient*
+kiro_client_new (void) {
+    return g_object_new (KIRO_TYPE_CLIENT, NULL);
+}
+
+
 static void kiro_client_init (KiroClient *self)
 {
     KiroClientPrivate *priv = KIRO_CLIENT_GET_PRIVATE(self);

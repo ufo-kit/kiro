@@ -65,6 +65,12 @@ struct _KiroServerPrivate {
 G_DEFINE_TYPE (KiroServer, kiro_server, G_TYPE_OBJECT);
 
 
+KiroServer*
+kiro_server_new (void) {
+    return g_object_new (KIRO_TYPE_SERVER, NULL);
+}
+
+
 static void kiro_server_init (KiroServer *self)
 {
     KiroServerPrivate *priv = KIRO_SERVER_GET_PRIVATE(self);
@@ -246,7 +252,7 @@ void * event_loop (void *self)
                 GList *client = g_list_find (priv->clients, (gconstpointer) ev->id);
                 if (client) {
                     struct kiro_connection_context *ctx = (struct kiro_connection_context *)(ev->id->context);
-                    printf ("Got disconnect request from client %s.\n", ctx->identifier);
+                    printf ("Got disconnect request from client %u.\n", ctx->identifier);
                     priv->clients = g_list_delete_link (priv->clients, client);
                 }
                 else
