@@ -34,7 +34,7 @@ include_directories(
   ${GOBJECT2_INCLUDE_DIRS}
 )
 
-add_definitions(-g -Wall -Wextra -std=c99)
+add_definitions(-Wall -Wextra -std=c99)
 
 # check for 64 bit
 if (CMAKE_SIZEOF_VOID_P EQUAL 8)
