@@ -80,7 +80,10 @@ main ( int argc, char *argv[] )
         for (SDL_Event event; SDL_PollEvent (&event);)
             if (event.type == SDL_QUIT) cont = 0;
 
-        kiro_client_sync (client);
+        if (kiro_client_sync (client) < 0) {
+            g_warning ("Unable to get data from server. Stopping.");
+            break;
+        }
         SDL_Delay (10);
         render (data_sf);
     }

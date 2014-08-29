@@ -208,6 +208,12 @@ int
 kiro_client_sync (KiroClient *self)
 {
     KiroClientPrivate *priv = KIRO_CLIENT_GET_PRIVATE (self);
+
+    if (!priv->conn) {
+        g_warning ("Client not connected");
+        return -1;
+    }
+
     struct kiro_connection_context *ctx = (struct kiro_connection_context *)priv->conn->context;
 
     if (rdma_post_read (priv->conn, priv->conn, ctx->rdma_mr->mem, ctx->peer_mr.length, ctx->rdma_mr->mr, 0, ctx->peer_mr.addr, ctx->peer_mr.rkey)) {
@@ -222,13 +228,29 @@ kiro_client_sync (KiroClient *self)
 
     if (rdma_get_send_comp (priv->conn, &wc) < 0) {
         g_critical ("No send completion for RDMA_READ received: %s", strerror (errno));
-        rdma_disconnect (priv->conn);
-        kiro_destroy_connection_context (&ctx);
-        rdma_destroy_ep (priv->conn);
-        return -1;
+        goto fail;
     }
 
-    return 0;
+    switch (wc.status) {
+        case IBV_WC_SUCCESS:
+            return 0;
+        case IBV_WC_RETRY_EXC_ERR:
+            g_critical ("Server no longer responding");
+            break;
+        case IBV_WC_REM_ACCESS_ERR:
+            g_critical ("Server has revoked access right to read data");
+            break;
+        default:
+            g_critical ("Could not get data from server. Status %u", wc.status);
+    }
+
+
+fail:
+    rdma_disconnect (priv->conn);
+    kiro_destroy_connection_context (&ctx);
+    rdma_destroy_ep (priv->conn);
+    priv->conn = NULL;
+    return -1;
 }
 
 
