@@ -25,9 +25,9 @@
 
 #include <rdma/rdma_cma.h>
 
-  
+
 struct kiro_connection_context {
-        
+
     // Information and necessary structurs
     uint32_t                identifier;             // Unique Identifier for this connection (Application Specific)
     struct kiro_rdma_mem    *cf_mr_recv;            // Control-Flow Memory Region Receive
@@ -35,52 +35,52 @@ struct kiro_connection_context {
     struct kiro_rdma_mem    *rdma_mr;               // Memory Region for RDMA Operations
 
     struct ibv_mr           peer_mr;                // RDMA Memory Region Information of the peer
-    
+
     enum {
         KIRO_IDLE,
         KIRO_MRI_REQUESTED,                         // Memory Region Information Requested
         KIRO_RDMA_ESTABLISHED,                      // MRI Exchange complete. RDMA is ready
         KIRO_RDMA_ACTIVE                            // RDMA Operation is being performed
     } rdma_state;
-    
+
 };
 
 
 struct kiro_ctrl_msg {
-    
+
     enum {
         KIRO_REQ_RDMA,                              // Requesting RDMA Access to/from the peer
         KIRO_ACK_RDMA,                              // acknowledge RDMA Request and provide Memory Region Information
         KIRO_REJ_RDMA                               // RDMA Request rejected :(  (peer_mri will be invalid)
     } msg_type;
-    
+
     struct ibv_mr peer_mri;
-    
+
 };
 
 
 struct kiro_rdma_mem {
-    
-    void            *mem;   // Pointer to the beginning of the memory block           
+
+    void            *mem;   // Pointer to the beginning of the memory block
     struct ibv_mr   *mr;    // Memory Region associated with the memory
     size_t          size;   // Size in Bytes of the memory block
 
 };
 
 
-static int kiro_attach_qp (struct rdma_cm_id *id)
+static int
+kiro_attach_qp (struct rdma_cm_id *id)
 {
-    if(!id)
+    if (!id)
         return -1;
-    
-    id->pd = ibv_alloc_pd(id->verbs);
-    id->send_cq_channel = ibv_create_comp_channel(id->verbs);
+
+    id->pd = ibv_alloc_pd (id->verbs);
+    id->send_cq_channel = ibv_create_comp_channel (id->verbs);
     id->recv_cq_channel = id->send_cq_channel; //we use one shared completion channel
-    id->send_cq = ibv_create_cq(id->verbs, 1, id, id->send_cq_channel, 0);
+    id->send_cq = ibv_create_cq (id->verbs, 1, id, id->send_cq_channel, 0);
     id->recv_cq = id->send_cq; //we use one shared completion queue
-    
     struct ibv_qp_init_attr qp_attr;
-    memset(&qp_attr, 0, sizeof(struct ibv_qp_init_attr));
+    memset (&qp_attr, 0, sizeof (struct ibv_qp_init_attr));
     qp_attr.qp_context = (uintptr_t)id;
     qp_attr.send_cq = id->send_cq;
     qp_attr.recv_cq = id->recv_cq;
@@ -89,131 +89,129 @@ static int kiro_attach_qp (struct rdma_cm_id *id)
     qp_attr.cap.max_recv_wr = 1;
     qp_attr.cap.max_send_sge = 1;
     qp_attr.cap.max_recv_sge = 1;
-    
-    return rdma_create_qp(id, id->pd, &qp_attr);
+    return rdma_create_qp (id, id->pd, &qp_attr);
 }
 
 
-static int kiro_register_rdma_memory (struct ibv_pd *pd, struct ibv_mr **mr, void *mem, size_t mem_size, int access)
+static int
+kiro_register_rdma_memory (struct ibv_pd *pd, struct ibv_mr **mr, void *mem, size_t mem_size, int access)
 {
-    
-    if(mem_size == 0)
-    {    
-        printf("Cant allocate memory of size '0'.\n");
+    if (mem_size == 0) {
+        printf ("Cant allocate memory of size '0'.\n");
         return -1;
     }
-    
+
     void *mem_handle = mem;
-    
-    if(!mem_handle)
-        mem_handle = malloc(mem_size);
-        
-    if(!mem_handle)
-    {
-        printf("Failed to allocate memory [Register Memory].");
-        return -1;
-    }        
-    
-    *mr = ibv_reg_mr(pd, mem_handle, mem_size, access);
-    if(!(*mr))
-    {
-        // Memory Registration failed
-        printf("Failed to register memory region!\n");
-        free(mem_handle);
+
+    if (!mem_handle)
+        mem_handle = malloc (mem_size);
+
+    if (!mem_handle) {
+        printf ("Failed to allocate memory [Register Memory].");
         return -1;
     }
-    
+
+    *mr = ibv_reg_mr (pd, mem_handle, mem_size, access);
+
+    if (! (*mr)) {
+        // Memory Registration failed
+        printf ("Failed to register memory region!\n");
+        free (mem_handle);
+        return -1;
+    }
+
     return 0;
 }
 
 
-static struct kiro_rdma_mem* kiro_create_rdma_memory (struct ibv_pd *pd, size_t mem_size, int access)
+static struct kiro_rdma_mem *
+kiro_create_rdma_memory (struct ibv_pd *pd, size_t mem_size, int access)
 {
-    if(mem_size == 0)
-    {    
-        printf("Cant allocate memory of size '0'.\n");
+    if (mem_size == 0) {
+        printf ("Cant allocate memory of size '0'.\n");
         return NULL;
     }
-    
-    struct kiro_rdma_mem *krm = (struct kiro_rdma_mem *)calloc(1, sizeof(struct kiro_rdma_mem));
-    if(!krm)
-    {
-        printf("Failed to create new KIRO RDMA Memory.\n");
+
+    struct kiro_rdma_mem *krm = (struct kiro_rdma_mem *)calloc (1, sizeof (struct kiro_rdma_mem));
+
+    if (!krm) {
+        printf ("Failed to create new KIRO RDMA Memory.\n");
         return NULL;
     }
-    
-    if(kiro_register_rdma_memory(pd, &(krm->mr), krm->mem, mem_size, access))
-    {
-        free(krm);
+
+    if (kiro_register_rdma_memory (pd, & (krm->mr), krm->mem, mem_size, access)) {
+        free (krm);
         return NULL;
     }
-    
-    if(!krm->mem)
+
+    if (!krm->mem)
         krm->mem = krm->mr->addr;
-    
-    
+
     return krm;
-    
 }
 
 
-static void kiro_destroy_rdma_memory (struct kiro_rdma_mem *krm)
+static void
+kiro_destroy_rdma_memory (struct kiro_rdma_mem *krm)
 {
-    if(!krm)
+    if (!krm)
         return;
-        
-    if(krm->mr)
-        ibv_dereg_mr(krm->mr);
-        
-    if(krm->mem)
-        free(krm->mem);
-        
-    free(krm);
+
+    if (krm->mr)
+        ibv_dereg_mr (krm->mr);
+
+    if (krm->mem)
+        free (krm->mem);
+
+    free (krm);
     krm = NULL;
 }
 
 
-static void kiro_destroy_connection_context (struct kiro_connection_context **ctx)
+static void
+kiro_destroy_connection_context (struct kiro_connection_context **ctx)
 {
-    if(!ctx)
+    if (!ctx)
         return;
-    
-    if(!(*ctx))
+
+    if (! (*ctx))
         return;
-        
-    if((*ctx)->cf_mr_recv)
-        kiro_destroy_rdma_memory((*ctx)->cf_mr_recv);
-    if((*ctx)->cf_mr_send)
-        kiro_destroy_rdma_memory((*ctx)->cf_mr_send);
-        
+
+    if ((*ctx)->cf_mr_recv)
+        kiro_destroy_rdma_memory ((*ctx)->cf_mr_recv);
+
+    if ((*ctx)->cf_mr_send)
+        kiro_destroy_rdma_memory ((*ctx)->cf_mr_send);
+
     //The RDMA-Memory Region normally contains allocated memory from the USER that has
     //just been 'registered' for RDMA. DON'T free it! Just deregister it. The user is
-    //responsible for freeing this memory. 
-    if((*ctx)->rdma_mr)
-    {
-        if((*ctx)->rdma_mr->mr)
-            ibv_dereg_mr((*ctx)->rdma_mr->mr);
-           
-        free((*ctx)->rdma_mr);
+    //responsible for freeing this memory.
+    if ((*ctx)->rdma_mr) {
+        if ((*ctx)->rdma_mr->mr)
+            ibv_dereg_mr ((*ctx)->rdma_mr->mr);
+
+        free ((*ctx)->rdma_mr);
         (*ctx)->rdma_mr = NULL;
     }
 
-    free(*ctx);
+    free (*ctx);
     *ctx = NULL;
 }
 
 
-static void kiro_destroy_connection (struct rdma_cm_id **conn)
+static void
+kiro_destroy_connection (struct rdma_cm_id **conn)
 {
-    if(!(*conn))
+    if (! (*conn))
         return;
-        
-    rdma_disconnect(*conn);
-    struct kiro_connection_context *ctx = (struct kiro_connection_context *)((*conn)->context);
-    if(ctx)
-        kiro_destroy_connection_context(&ctx);
-        
-    rdma_destroy_ep(*conn);
+
+    rdma_disconnect (*conn);
+    struct kiro_connection_context *ctx = (struct kiro_connection_context *) ((*conn)->context);
+
+    if (ctx)
+        kiro_destroy_connection_context (&ctx);
+
+    rdma_destroy_ep (*conn);
     *conn = NULL;
 }
 

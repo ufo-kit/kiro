@@ -25,7 +25,7 @@
  * about its content inside itself, so its data can be exchanged between different
  * instances of the KiroTrb Class and/or sent over a network.
  */
- 
+
 #ifndef __KIRO_TRB_H
 #define __KIRO_TBR_H
 
@@ -48,7 +48,7 @@ typedef struct _KiroTrbPrivate    KiroTrbPrivate;
 
 
 struct _KiroTrb {
-    
+
     GObject parent;
 
 };
@@ -61,20 +61,20 @@ struct _KiroTrb {
  */
 
 struct _KiroTrbClass {
-    
+
     GObjectClass parent_class;
-       
+
 };
 
 
 struct KiroTrbInfo {
-    
+
     /* internal information about the buffer */
     uint64_t buffer_size_bytes;  // Size in bytes INCLUDING this header
     uint64_t element_size;       // Size in bytes of one single element
     uint64_t offset;             // Current Offset to access the 'oldest' element (in element count!)
-    
-} __attribute__((packed));
+
+} __attribute__ ((packed));
 
 
 /* GObject and GType functions */
@@ -94,10 +94,10 @@ KiroTrb*    kiro_trb_new                (void);
  * See also:
  *   kiro_trb_reshape, kiro_trb_adopt, kiro_trb_clone
  */
-uint64_t kiro_trb_get_element_size (KiroTrb* trb);
+uint64_t kiro_trb_get_element_size (KiroTrb *trb);
 
 /**
- * kiro_trb_get_max_elements: 
+ * kiro_trb_get_max_elements:
  * Returns the capacity of the buffer
  * @trb: #KiroTrb to perform the operation on
  * Description:
@@ -107,11 +107,11 @@ uint64_t kiro_trb_get_element_size (KiroTrb* trb);
  *   kiro_trb_get_element_size, kiro_trb_reshape, kiro_trb_adopt,
  *   kiro_trb_clone
  */
-uint64_t kiro_trb_get_max_elements (KiroTrb* trb);
+uint64_t kiro_trb_get_max_elements (KiroTrb *trb);
 
 
 /**
- * kiro_trb_get_raw_size: 
+ * kiro_trb_get_raw_size:
  * Returns the size of the buffer memory
  * @trb: #KiroTrb to perform the operation on
  * Description:
@@ -123,11 +123,11 @@ uint64_t kiro_trb_get_max_elements (KiroTrb* trb);
  *   kiro_trb_reshape, kiro_trb_adopt,
  *   kiro_trb_clone
  */
-uint64_t kiro_trb_get_raw_size (KiroTrb* trb);
+uint64_t kiro_trb_get_raw_size (KiroTrb *trb);
 
 
 /**
- * kiro_trb_get_raw_buffer: 
+ * kiro_trb_get_raw_buffer:
  * @trb: #KiroTrb to perform the operation on
  * Description:
  *   Returns a pointer to the memory structure of the given buffer.
@@ -148,11 +148,11 @@ uint64_t kiro_trb_get_raw_size (KiroTrb* trb);
  * See also:
  *   kiro_trb_refesh, kiro_trb_reshape, kiro_trb_adopt, kiro_trb_clone
  */
-void* kiro_trb_get_raw_buffer (KiroTrb* trb);
+void* kiro_trb_get_raw_buffer (KiroTrb *trb);
 
 
 /**
- * kiro_trb_get_element: 
+ * kiro_trb_get_element:
  * @trb: #KiroTrb to perform the operation on
  * @index: Index of the element in the buffer to access
  * Description:
@@ -172,11 +172,11 @@ void* kiro_trb_get_raw_buffer (KiroTrb* trb);
  * See also:
  *   kiro_trb_get_element_size, kiro_trb_get_raw_buffer
  */
-void* kiro_trb_get_element (KiroTrb* trb, uint64_t index);
+void* kiro_trb_get_element (KiroTrb *trb, uint64_t index);
 
 
 /**
- * kiro_trb_dma_push: 
+ * kiro_trb_dma_push:
  * Gives DMA to the next element and pushes the buffer
  * @trb: #KiroTrb to perform the operation on
  * Description:
@@ -198,11 +198,11 @@ void* kiro_trb_get_element (KiroTrb* trb, uint64_t index);
  * See also:
  *   kiro_trb_push, kiro_trb_get_element_size, kiro_trb_get_raw_buffer
  */
-void* kiro_trb_dma_push (KiroTrb* trb);
+void* kiro_trb_dma_push (KiroTrb *trb);
 
 
 /**
- * kiro_trb_flush: 
+ * kiro_trb_flush:
  * Flushes the buffer
  * @trb: #KiroTrb to perform the operation on
  * Description:
@@ -214,11 +214,11 @@ void* kiro_trb_dma_push (KiroTrb* trb);
  * See also:
  *   kiro_trb_reshape, kiro_trb_adopt, kiro_trb_clone
  */
-void kiro_trb_flush (KiroTrb* trb);
+void kiro_trb_flush (KiroTrb *trb);
 
 
 /**
- * kiro_trb_purge: 
+ * kiro_trb_purge:
  * Completely resets the Buffer
  * @trb: #KiroTrb to perform the operation on
  * @free_memory: True = internal memory will be free()'d,
@@ -233,11 +233,11 @@ void kiro_trb_flush (KiroTrb* trb);
  * See also:
  *   kiro_trb_reshape, kiro_trb_adopt, kiro_trb_clone
  */
-void kiro_trb_purge (KiroTrb* trb, gboolean free_memory);
+void kiro_trb_purge (KiroTrb *trb, gboolean free_memory);
 
 
 /**
- * kiro_trb_is_setup: 
+ * kiro_trb_is_setup:
  * Returns the setup status of the buffer
  * @trb: #KiroTrb to perform the operation on
  * Description:
@@ -250,11 +250,11 @@ void kiro_trb_purge (KiroTrb* trb, gboolean free_memory);
  * See also:
  *   kiro_trb_reshape, kiro_trb_adopt, kiro_trb_clone
  */
-int kiro_trb_is_setup (KiroTrb* trb);
+int kiro_trb_is_setup (KiroTrb *trb);
 
 
 /**
- * kiro_trb_reshape: 
+ * kiro_trb_reshape:
  * Reallocates internal memory and structures
  * @trb: #KiroTrb to perform the operation on
  * @element_size: Individual size of the elements to store in bytes
@@ -270,11 +270,11 @@ int kiro_trb_is_setup (KiroTrb* trb);
  * See also:
  *   kiro_trb_is_setup, kiro_trb_reshape, kiro_trb_adopt, kiro_trb_clone
  */
-int kiro_trb_reshape (KiroTrb* trb, uint64_t element_size, uint64_t element_count);
+int kiro_trb_reshape (KiroTrb *trb, uint64_t element_size, uint64_t element_count);
 
 
 /**
- * kiro_trb_clone: 
+ * kiro_trb_clone:
  * Clones the given memory into the internal memory
  * @trb: #KiroTrb to perform the operation on
  * @source: Pointer to the source memory to clone from
@@ -293,11 +293,11 @@ int kiro_trb_reshape (KiroTrb* trb, uint64_t element_size, uint64_t element_coun
  * See also:
  *   kiro_trb_reshape, kiro_trb_adopt
  */
-int kiro_trb_clone (KiroTrb* trb, void* source);
+int kiro_trb_clone (KiroTrb *trb, void *source);
 
 
 /**
- * kiro_trb_push: 
+ * kiro_trb_push:
  * Adds an element into the buffer
  * @trb: #KiroTrb to perform the operation on
  * @source: Pointer to the memory of the element to add
@@ -314,11 +314,11 @@ int kiro_trb_clone (KiroTrb* trb, void* source);
  *   kiro_trb_dma_push, kiro_trb_get_element_size, kiro_trb_clone,
  *   kiro_trb_adopt
  */
-int kiro_trb_push (KiroTrb* trb, void* source);
+int kiro_trb_push (KiroTrb *trb, void *source);
 
 
 /**
- * kiro_trb_refresh: 
+ * kiro_trb_refresh:
  * Re-reads the TRBs memory header
  * @trb: #KiroTrb to perform the operation on
  * Description:
@@ -333,11 +333,11 @@ int kiro_trb_push (KiroTrb* trb, void* source);
  * See also:
  *   kiro_trb_get_raw_buffer, kiro_trb_push_dma, kiro_trb_adopt
  */
-void kiro_trb_refresh (KiroTrb* trb);
+void kiro_trb_refresh (KiroTrb *trb);
 
 
 /**
- * kiro_trb_adopt: 
+ * kiro_trb_adopt:
  * Adopts the given memory into the TRB
  * @trb: #KiroTrb to perform the operation on
  * @source: Pointer to the source memory to adopt
@@ -356,7 +356,7 @@ void kiro_trb_refresh (KiroTrb* trb);
  * See also:
  *   kiro_trb_clone, kiro_trb_reshape
  */
-void kiro_trb_adopt (KiroTrb* trb, void* source);
+void kiro_trb_adopt (KiroTrb *trb, void *source);
 
 G_END_DECLS
 

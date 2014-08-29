@@ -24,7 +24,7 @@
  * KiroClient implements the client / active / consumer side of the the RDMA
  * Communication Channel. It uses a KIRO-CLIENT to manage data read from the Server.
  */
- 
+
 #ifndef __KIRO_CLIENT_H
 #define __KIRO_CLIENT_H
 
@@ -47,9 +47,9 @@ typedef struct _KiroClientPrivate    KiroClientPrivate;
 
 
 struct _KiroClient {
-    
+
     GObject parent;
-    
+
     /*< private >*/
     KiroClientPrivate *priv;
 };
@@ -62,9 +62,9 @@ struct _KiroClient {
  */
 
 struct _KiroClientClass {
-    
+
     GObjectClass parent_class;
-       
+
 };
 
 
@@ -72,18 +72,18 @@ struct _KiroClientClass {
 /* GObject and GType functions */
 GType       kiro_client_get_type            (void);
 
-KiroClient* kiro_client_new                 (void);
+KiroClient *kiro_client_new                 (void);
 
 /* client functions */
 
 
-int         kiro_client_connect             (KiroClient* client, char* dest_addr, char* dest_port);
+int         kiro_client_connect             (KiroClient *client, char *dest_addr, char *dest_port);
 
-int         kiro_client_sync                (KiroClient* client);
+int         kiro_client_sync                (KiroClient *client);
 
-void*       kiro_client_get_memory          (KiroClient* client);
+void       *kiro_client_get_memory          (KiroClient *client);
 
-size_t      kior_client_get_memory_size     (KiroClient* client);
+size_t      kior_client_get_memory_size     (KiroClient *client);
 
 G_END_DECLS
 

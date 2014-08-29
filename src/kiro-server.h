@@ -24,7 +24,7 @@
  * KiroServer implements the server / passive / provider side of the the RDMA
  * Communication Channel. It uses a KIRO-TRB to manage its data.
  */
- 
+
 #ifndef __KIRO_SERVER_H
 #define __KIRO_SERVER_H
 
@@ -47,9 +47,9 @@ typedef struct _KiroServerPrivate    KiroServerPrivate;
 
 
 struct _KiroServer {
-    
+
     GObject parent;
-    
+
     /*< private >*/
     KiroServerPrivate *priv;
 };
@@ -62,9 +62,9 @@ struct _KiroServer {
  */
 
 struct _KiroServerClass {
-    
+
     GObjectClass parent_class;
-       
+
 };
 
 
@@ -99,7 +99,7 @@ KiroServer*  kiro_server_new                 (void);
  *   kiro_trb_reshape, kiro_trb_adopt,
  *   kiro_trb_clone
  */
-int kiro_server_start (KiroServer* server, char* bind_addr, char* bind_port, void* mem, size_t mem_size);
+int kiro_server_start (KiroServer *server, char *bind_addr, char *bind_port, void *mem, size_t mem_size);
 
 /**
  * kiro_server_stop - Stops the server
@@ -109,7 +109,7 @@ int kiro_server_start (KiroServer* server, char* bind_addr, char* bind_port, voi
  * See also:
  *   kiro_server_start
  */
-void kiro_server_stop (KiroServer* server);
+void kiro_server_stop (KiroServer *server);
 
 G_END_DECLS
 
