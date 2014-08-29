@@ -170,7 +170,7 @@ main (void)
     GRand *rand = g_rand_new();
 
     if (0 > kiro_server_start (server, NULL, "60010", kiro_trb_get_raw_buffer (rb), kiro_trb_get_raw_size (rb))) {
-        printf ("Failed to start server properly.\n");
+        g_critical ("Failed to start server properly");
         goto done;
     }
 

@@ -98,7 +98,7 @@ kiro_client_connect (KiroClient *self, char *address, char *port)
     KiroClientPrivate *priv = KIRO_CLIENT_GET_PRIVATE (self);
 
     if (priv->conn) {
-        printf ("Already connected to server.\n");
+        g_warning ("Already connected to server");
         return -1;
     }
 
@@ -109,11 +109,11 @@ kiro_client_connect (KiroClient *self, char *address, char *port)
     hints.ai_port_space = RDMA_PS_IB;
 
     if (rdma_getaddrinfo (address, port, &hints, &res_addrinfo)) {
-        printf ("Failed to contruct address information for %s:%s\n", address, port);
+        g_critical ("Failed to get address information for %s:%s : %s", address, port, strerror (errno));
         return -1;
     }
 
-    printf ("Address information created.\n");
+    g_debug ("Address information created");
     struct ibv_qp_init_attr qp_attr;
     memset (&qp_attr, 0, sizeof (qp_attr));
     qp_attr.cap.max_send_wr = 10;
@@ -124,15 +124,15 @@ kiro_client_connect (KiroClient *self, char *address, char *port)
     qp_attr.sq_sig_all = 1;
 
     if (rdma_create_ep (& (priv->conn), res_addrinfo, NULL, &qp_attr)) {
-        printf ("Endpoint creation failed with error: %i\n", errno);
+        g_critical ("Endpoint creation failed: %s", strerror (errno));
         return -1;
     }
 
-    printf ("Route to server resolved.\n");
+    g_debug ("Route to server resolved");
     struct kiro_connection_context *ctx = (struct kiro_connection_context *)calloc (1, sizeof (struct kiro_connection_context));
 
     if (!ctx) {
-        printf ("Failed to create connection context.\n");
+        g_critical ("Failed to create connection context (Out of memory?)");
         rdma_destroy_ep (priv->conn);
         return -1;
     }
@@ -141,7 +141,7 @@ kiro_client_connect (KiroClient *self, char *address, char *port)
     ctx->cf_mr_recv = (struct kiro_rdma_mem *)calloc (1, sizeof (struct kiro_rdma_mem));
 
     if (!ctx->cf_mr_recv || !ctx->cf_mr_send) {
-        printf ("Failed to allocate Control Flow Memory Container.\n");
+        g_critical ("Failed to allocate Control Flow Memory Container (Out of memory?)");
         kiro_destroy_connection_context (&ctx);
         rdma_destroy_ep (priv->conn);
         return -1;
@@ -151,7 +151,7 @@ kiro_client_connect (KiroClient *self, char *address, char *port)
     ctx->cf_mr_send = kiro_create_rdma_memory (priv->conn->pd, sizeof (struct kiro_ctrl_msg), IBV_ACCESS_LOCAL_WRITE);
 
     if (!ctx->cf_mr_recv || !ctx->cf_mr_send) {
-        printf ("Failed to register control message memory.\n");
+        g_critical ("Failed to register control message memory (Out of memory?)");
         kiro_destroy_connection_context (&ctx);
         rdma_destroy_ep (priv->conn);
         return -1;
@@ -161,44 +161,44 @@ kiro_client_connect (KiroClient *self, char *address, char *port)
     priv->conn->context = ctx;
 
     if (rdma_post_recv (priv->conn, priv->conn, ctx->cf_mr_recv->mem, ctx->cf_mr_recv->size, ctx->cf_mr_recv->mr)) {
-        printf ("Posting preemtive receive for connection failed with error: %i\n", errno);
+        g_critical ("Posting preemtive receive for connection failed: %s", strerror (errno));
         kiro_destroy_connection_context (&ctx);
         rdma_destroy_ep (priv->conn);
         return -1;
     }
 
     if (rdma_connect (priv->conn, NULL)) {
-        printf ("Failed to establish connection to the server.\n");
+        g_critical ("Failed to establish connection to the server: %s", strerror (errno));
         kiro_destroy_connection_context (&ctx);
         rdma_destroy_ep (priv->conn);
         return -1;
     }
 
-    printf ("Connected to server.\n");
+    g_message ("Connection to server established");
     struct ibv_wc wc;
 
     if (rdma_get_recv_comp (priv->conn, &wc) < 0) {
-        printf ("Failure waiting for POST from server.\n");
+        g_critical ("Failure waiting for POST from server: %s", strerror (errno));
         rdma_disconnect (priv->conn);
         kiro_destroy_connection_context (&ctx);
         rdma_destroy_ep (priv->conn);
         return -1;
     }
 
-    printf ("Got Message from Server.\n");
+    g_debug ("Got RDMI Access information from Server");
     ctx->peer_mr = (((struct kiro_ctrl_msg *) (ctx->cf_mr_recv->mem))->peer_mri);
-    printf ("Expected Memory Size is: %u\n", ctx->peer_mr.length);
+    g_debug ("Expected Memory Size is: %u", ctx->peer_mr.length);
     ctx->rdma_mr = kiro_create_rdma_memory (priv->conn->pd, ctx->peer_mr.length, IBV_ACCESS_LOCAL_WRITE);
 
     if (!ctx->rdma_mr) {
-        printf ("Failed to allocate memory for receive buffer.\n");
+        g_critical ("Failed to allocate memory for receive buffer (Out of memory?)");
         rdma_disconnect (priv->conn);
         kiro_destroy_connection_context (&ctx);
         rdma_destroy_ep (priv->conn);
         return -1;
     }
 
-    printf ("Connection setup completed successfully!\n");
+    g_message ("Connected to %s:%s", address, port);
     return 0;
 }
 
@@ -211,7 +211,7 @@ kiro_client_sync (KiroClient *self)
     struct kiro_connection_context *ctx = (struct kiro_connection_context *)priv->conn->context;
 
     if (rdma_post_read (priv->conn, priv->conn, ctx->rdma_mr->mem, ctx->peer_mr.length, ctx->rdma_mr->mr, 0, ctx->peer_mr.addr, ctx->peer_mr.rkey)) {
-        printf ("Failed to read from server.\n");
+        g_critical ("Failed to RDMA_READ from server: %s", strerror (errno));
         rdma_disconnect (priv->conn);
         kiro_destroy_connection_context (&ctx);
         rdma_destroy_ep (priv->conn);
@@ -221,7 +221,7 @@ kiro_client_sync (KiroClient *self)
     struct ibv_wc wc;
 
     if (rdma_get_send_comp (priv->conn, &wc) < 0) {
-        printf ("Failure reading from server.\n");
+        g_critical ("No send completion for RDMA_READ received: %s", strerror (errno));
         rdma_disconnect (priv->conn);
         kiro_destroy_connection_context (&ctx);
         rdma_destroy_ep (priv->conn);

@@ -105,7 +105,7 @@ connect_client (struct rdma_cm_id *client)
         return -1;
 
     if ( -1 == kiro_attach_qp (client)) {
-        printf ("Could not create a QP for the new connection.\n");
+        g_critical ("Could not create a QP for the new connection");
         rdma_destroy_id (client);
         return -1;
     }
@@ -113,7 +113,7 @@ connect_client (struct rdma_cm_id *client)
     struct kiro_connection_context *ctx = (struct kiro_connection_context *)calloc (1, sizeof (struct kiro_connection_context));
 
     if (!ctx) {
-        printf ("Failed to create connection context.\n");
+        g_critical ("Failed to create connection context");
         rdma_destroy_id (client);
         return -1;
     }
@@ -122,7 +122,7 @@ connect_client (struct rdma_cm_id *client)
     ctx->cf_mr_recv = (struct kiro_rdma_mem *)calloc (1, sizeof (struct kiro_rdma_mem));
 
     if (!ctx->cf_mr_recv || !ctx->cf_mr_send) {
-        printf ("Failed to allocate Control Flow Memory Container.\n");
+        g_critical ("Failed to allocate Control Flow Memory Container");
         goto error;
     }
 
@@ -130,7 +130,7 @@ connect_client (struct rdma_cm_id *client)
     ctx->cf_mr_send = kiro_create_rdma_memory (client->pd, sizeof (struct kiro_ctrl_msg), IBV_ACCESS_LOCAL_WRITE);
 
     if (!ctx->cf_mr_recv || !ctx->cf_mr_send) {
-        printf ("Failed to register control message memory.\n");
+        g_critical ("Failed to register control message memory");
         goto error;
     }
 
@@ -138,16 +138,16 @@ connect_client (struct rdma_cm_id *client)
     client->context = ctx;
 
     if (rdma_post_recv (client, client, ctx->cf_mr_recv->mem, ctx->cf_mr_recv->size, ctx->cf_mr_recv->mr)) {
-        printf ("Posting preemtive receive for connection failed.\n");
+        g_critical ("Posting preemtive receive for connection failed: %s", strerror (errno));
         goto error;
     }
 
     if (rdma_accept (client, NULL)) {
-        printf ("Failed to establish connection to the client with error: %i.\n", errno);
+        g_warning ("Failed to establish connection to the client: %s", strerror (errno));
         goto error;
     }
 
-    printf ("Client Connected.\n");
+    g_debug ("Client connection setup successfull");
     return 0;
 error:
     rdma_reject (client, NULL, 0);
@@ -164,7 +164,7 @@ welcome_client (struct rdma_cm_id *client, void *mem, size_t mem_size)
     ctx->rdma_mr = (struct kiro_rdma_mem *)calloc (1, sizeof (struct kiro_rdma_mem));
 
     if (!ctx->rdma_mr) {
-        printf ("Failed to allocate RDMA Memory Container.\n");
+        g_critical ("Failed to allocate RDMA Memory Container: %s", strerror (errno));
         return -1;
     }
 
@@ -173,7 +173,7 @@ welcome_client (struct rdma_cm_id *client, void *mem, size_t mem_size)
     ctx->rdma_mr->mr = rdma_reg_read (client, ctx->rdma_mr->mem, ctx->rdma_mr->size);
 
     if (!ctx->rdma_mr->mr) {
-        printf ("Failed to register RDMA Memory Region.\n");
+        g_critical ("Failed to register RDMA Memory Region: %s", strerror (errno));
         kiro_destroy_rdma_memory (ctx->rdma_mr);
         return -1;
     }
@@ -185,7 +185,7 @@ welcome_client (struct rdma_cm_id *client, void *mem, size_t mem_size)
     msg->peer_mri = * (ctx->rdma_mr->mr);
 
     if (rdma_post_send (client, client, ctx->cf_mr_send->mem, ctx->cf_mr_send->size, ctx->cf_mr_send->mr, IBV_SEND_SIGNALED)) {
-        printf ("Failure while trying to post SEND.\n");
+        g_warning ("Failure while trying to post SEND: %s", strerror (errno));
         kiro_destroy_rdma_memory (ctx->rdma_mr);
         return -1;
     }
@@ -193,17 +193,17 @@ welcome_client (struct rdma_cm_id *client, void *mem, size_t mem_size)
     struct ibv_wc wc;
 
     if (rdma_get_send_comp (client, &wc) < 0) {
-        printf ("Failed to post RDMA MRI to client.\n");
+        g_warning ("Failed to post RDMA MRI to client: %s", strerror (errno));
         kiro_destroy_rdma_memory (ctx->rdma_mr);
         return -1;
     }
 
-    printf ("RDMA MRI sent to client.\n");
+    g_debug ("RDMA MRI sent to client");
     return 0;
 }
 
 
-void *
+static void *
 event_loop (void *self)
 {
     KiroServerPrivate *priv = KIRO_SERVER_GET_PRIVATE ((KiroServer *)self);
@@ -216,7 +216,7 @@ event_loop (void *self)
             struct rdma_cm_event *ev = malloc (sizeof (*active_event));
 
             if (!ev) {
-                printf ("Unable to allocate memory for Event handling!\n");
+                g_critical ("Unable to allocate memory for Event handling!");
                 rdma_ack_cm_event (active_event);
                 continue;
             }
@@ -232,6 +232,8 @@ event_loop (void *self)
                     rdma_reject (ev->id, NULL, 0);
                 }
 
+                g_debug ("Got connection request from client");
+
                 if (0 == connect_client (ev->id)) {
                     // Post a welcoming "Recieve" for handshaking
                     if (0 == welcome_client (ev->id, priv->mem, priv->mem_size)) {
@@ -239,8 +241,8 @@ event_loop (void *self)
                         struct kiro_connection_context *ctx = (struct kiro_connection_context *) (ev->id->context);
                         ctx->identifier = priv->next_client_id++;
                         priv->clients = g_list_append (priv->clients, (gpointer)ev->id);
-                        printf ("Client id %u connected\n", ctx->identifier);
-                        printf ("Currently %u clients in total are connected.\n", g_list_length (priv->clients));
+                        g_debug ("Client connection assigned with ID %u", ctx->identifier);
+                        g_debug ("Currently %u clients in total are connected", g_list_length (priv->clients));
                     }
                 }
             }
@@ -249,14 +251,14 @@ event_loop (void *self)
 
                 if (client) {
                     struct kiro_connection_context *ctx = (struct kiro_connection_context *) (ev->id->context);
-                    printf ("Got disconnect request from client %u.\n", ctx->identifier);
+                    g_debug ("Got disconnect request from client ID %u", ctx->identifier);
                     priv->clients = g_list_delete_link (priv->clients, client);
                 }
                 else
-                    printf ("Got disconnect request from unknown client.\n");
+                    g_debug ("Got disconnect request from unknown client");
 
                 kiro_destroy_connection (& (ev->id));
-                printf ("Connection closed successfully. %u connected clients remaining.\n", g_list_length (priv->clients));
+                g_debug ("Connection closed successfully. %u connected clients remaining", g_list_length (priv->clients));
             }
 
             free (ev);
@@ -265,7 +267,7 @@ event_loop (void *self)
         pthread_setcancelstate (PTHREAD_CANCEL_ENABLE, NULL);
     }
 
-    printf ("Closing Event Listener Thread\n");
+    g_debug ("Closing Event Listener Thread");
     return NULL;
 }
 
@@ -278,12 +280,12 @@ kiro_server_start (KiroServer *self, char *address, char *port, void *mem, size_
     KiroServerPrivate *priv = KIRO_SERVER_GET_PRIVATE (self);
 
     if (priv->base) {
-        printf ("Server already started.\n");
+        g_debug ("Server already started.");
         return -1;
     }
 
     if (!mem || mem_size == 0) {
-        printf ("Invalid memory given to provide.\n");
+        g_warning ("Invalid memory given to provide.");
         return -1;
     }
 
@@ -293,7 +295,7 @@ kiro_server_start (KiroServer *self, char *address, char *port, void *mem, size_
     hints.ai_flags = RAI_PASSIVE;
 
     if (rdma_getaddrinfo (address, port, &hints, &res_addrinfo)) {
-        printf ("Failed to create address information.");
+        g_critical ("Failed to create address information: %s", strerror (errno));
         return -1;
     }
 
@@ -307,11 +309,11 @@ kiro_server_start (KiroServer *self, char *address, char *port, void *mem, size_
     qp_attr.sq_sig_all = 1;
 
     if (rdma_create_ep (& (priv->base), res_addrinfo, NULL, &qp_attr)) {
-        printf ("Endpoint creation failed: %s.\n", strerror (errno));
+        g_critical ("Endpoint creation failed: %s", strerror (errno));
         return -1;
     }
 
-    printf ("Endpoint created.\n");
+    g_debug ("Endpoint created");
     char *addr_local = NULL;
     struct sockaddr *src_addr = rdma_get_local_addr (priv->base);
 
@@ -328,10 +330,10 @@ kiro_server_start (KiroServer *self, char *address, char *port, void *mem, size_
         */
     }
 
-    printf ("Bound to address %s:%s\n", addr_local, port);
+    g_message ("Server bound to address %s:%s", addr_local, port);
 
     if (rdma_listen (priv->base, 0)) {
-        printf ("Failed to put server into listening state.\n");
+        g_critical ("Failed to put server into listening state: %s", strerror (errno));
         rdma_destroy_ep (priv->base);
         return -1;
     }
@@ -341,25 +343,25 @@ kiro_server_start (KiroServer *self, char *address, char *port, void *mem, size_
     priv->ec = rdma_create_event_channel();
 
     if (rdma_migrate_id (priv->base, priv->ec)) {
-        printf ("Was unable to migrate connection to new Event Channel.\n");
+        g_critical ("Was unable to migrate connection to new Event Channel: %s", strerror (errno));
         rdma_destroy_ep (priv->base);
         return -1;
     }
 
     pthread_create (& (priv->event_listener), NULL, event_loop, self);
-    printf ("Enpoint listening.\n");
+    g_message ("Enpoint listening");
     sleep (1);
     return 0;
 }
 
 
-void
+static void
 disconnect_client (gpointer data, gpointer user_data)
 {
     if (data) {
         struct rdma_cm_id *id = (struct rdma_cm_id *)data;
         struct kiro_connection_context *ctx = (struct kiro_connection_context *) (id->context);
-        printf ("Disconnecting client: %u.\n", ctx->identifier);
+        g_debug ("Disconnecting client: %u", ctx->identifier);
         rdma_disconnect ((struct rdma_cm_id *) data);
     }
 }
@@ -380,7 +382,7 @@ kiro_server_stop (KiroServer *self)
     priv->close_signal = 1;
     pthread_cancel (priv->event_listener);
     pthread_join (priv->event_listener, NULL);
-    printf ("Event Listener Thread stopped.\n");
+    g_debug ("Event Listener Thread stopped");
     priv->close_signal = 0;
     
     g_list_foreach (priv->clients, disconnect_client, NULL);
@@ -390,7 +392,7 @@ kiro_server_stop (KiroServer *self)
     priv->base = NULL;
     rdma_destroy_event_channel (priv->ec);
     priv->ec = NULL;
-    printf ("Server stopped successfully.\n");
+    g_message ("Server stopped successfully");
 }
 
 
