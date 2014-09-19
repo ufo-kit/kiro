@@ -93,7 +93,7 @@ kiro_client_class_init (KiroClientClass *klass)
 
 
 int
-kiro_client_connect (KiroClient *self, char *address, char *port)
+kiro_client_connect (KiroClient *self, const char *address, const char *port)
 {
     KiroClientPrivate *priv = KIRO_CLIENT_GET_PRIVATE (self);
 
@@ -243,7 +243,6 @@ kiro_client_sync (KiroClient *self)
         default:
             g_critical ("Could not get data from server. Status %u", wc.status);
     }
-
 
 fail:
     rdma_disconnect (priv->conn);

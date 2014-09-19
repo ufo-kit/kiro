@@ -77,7 +77,7 @@ KiroClient *kiro_client_new                 (void);
 /* client functions */
 
 
-int         kiro_client_connect             (KiroClient *client, char *dest_addr, char *dest_port);
+int         kiro_client_connect             (KiroClient *client, const char *dest_addr, const char *dest_port);
 
 int         kiro_client_sync                (KiroClient *client);
 
