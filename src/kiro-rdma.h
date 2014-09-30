@@ -147,6 +147,8 @@ kiro_create_rdma_memory (struct ibv_pd *pd, size_t mem_size, int access)
     if (!krm->mem)
         krm->mem = krm->mr->addr;
 
+    krm->size = mem_size;
+
     return krm;
 }
 
