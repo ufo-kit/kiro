@@ -82,6 +82,8 @@ GType       kiro_trb_get_type           (void);
 
 KiroTrb*    kiro_trb_new                (void);
 
+void        kiro_trb_free               (KiroTrb *trb);
+
 
 /* trb functions */
 

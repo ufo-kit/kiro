@@ -67,6 +67,19 @@ kiro_client_new (void)
 }
 
 
+void
+kiro_client_free (KiroClient *client)
+{
+    if (!client)
+        return;
+
+    if (KIRO_IS_CLIENT (client))
+        g_object_unref (client);
+    else
+        g_warning ("Trying to use kiro_client_free on an object which is not a KIRO client. Ignoring...");
+}
+
+
 static void
 kiro_client_init (KiroClient *self)
 {
@@ -74,13 +87,13 @@ kiro_client_init (KiroClient *self)
     memset (priv, 0, sizeof (&priv));
 }
 
+
 static void
 kiro_client_finalize (GObject *object)
 {
-    //KiroClient *self = KIRO_CLIENT(object);
-    //KiroClientPrivate * priv = KIRO_CLIENT_GET_PRIVATE(self);
     //PASS
 }
+
 
 static void
 kiro_client_class_init (KiroClientClass *klass)
@@ -89,7 +102,6 @@ kiro_client_class_init (KiroClientClass *klass)
     gobject_class->finalize = kiro_client_finalize;
     g_type_class_add_private (klass, sizeof (KiroClientPrivate));
 }
-
 
 
 int
@@ -203,7 +215,6 @@ kiro_client_connect (KiroClient *self, const char *address, const char *port)
 }
 
 
-
 int
 kiro_client_sync (KiroClient *self)
 {
@@ -285,8 +296,4 @@ kiro_client_get_memory_size (KiroClient *self)
 
     return ctx->rdma_mr->size;
 }
-
-
-
-
 

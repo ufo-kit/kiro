@@ -70,12 +70,26 @@ kiro_trb_new (void)
 }
 
 
+void
+kiro_trb_free (KiroTrb *trb)
+{
+    if (!trb)
+        return;
+
+    if (KIRO_IS_TRB (trb))
+        g_object_unref (trb);
+    else
+        g_warning ("Trying to use kiro_trb_free on an object which is not a KIRO TRB. Ignoring...");
+}
+
+
 static
 void kiro_trb_init (KiroTrb *self)
 {
     KiroTrbPrivate *priv = KIRO_TRB_GET_PRIVATE (self);
     priv->initialized = 0;
 }
+
 
 static void
 kiro_trb_finalize (GObject *object)
@@ -86,6 +100,7 @@ kiro_trb_finalize (GObject *object)
     if (priv->mem)
         free (priv->mem);
 }
+
 
 static void
 kiro_trb_class_init (KiroTrbClass *klass)
@@ -162,7 +177,6 @@ kiro_trb_get_raw_buffer (KiroTrb *self)
     write_header (priv);
     return priv->mem;
 }
-
 
 
 void *
@@ -345,3 +359,4 @@ kiro_trb_clone (KiroTrb *self, void *buff_in)
     kiro_trb_refresh (self);
     return 0;
 }
+

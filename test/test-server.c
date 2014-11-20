@@ -126,7 +126,7 @@ print_current_frame (gchar *buffer, guint number, guint width, guint height, GRa
         x += DIGIT_WIDTH + 1;
     }
 
-    //Rainbow pattern is the same for every row. Just calculate one single
+    //Grayscale pattern is the same for every row. Just calculate one single
     //Scanline, so we can reuse it and dont have to do the whole calculation
     //for every row again.
     char default_line[width];
@@ -135,7 +135,7 @@ print_current_frame (gchar *buffer, guint number, guint width, guint height, GRa
         default_line[p] = (char) ((p * 256) / (width));
     }
 
-    //Use memcpy to quickly fill every row with the precalculated rainbow
+    //Use memcpy to quickly fill every row with the precalculated grayscale
     //pattern
     for (guint y = 16; y < height; y++) {
         guint index = y * width;
@@ -185,7 +185,7 @@ main (void)
 
 done:
     g_rand_free (rand);
-    g_object_unref (rb);
-    g_object_unref (server);
+    kiro_trb_free (rb);
+    kiro_server_free (server);
     return 0;
 }

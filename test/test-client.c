@@ -40,20 +40,22 @@ int
 main ( int argc, char *argv[] )
 {
     if (argc < 3) {
-        printf ("Not enough aruments. Usage: ./client <address> <port>\n");
+        printf ("Not enough aruments. Usage: 'kiro-client-sdl <address> <port>'\n");
         return -1;
     }
 
     KiroClient *client = kiro_client_new ();
+    KiroTrb *trb = kiro_trb_new ();
 
     if (-1 == kiro_client_connect (client, argv[1], argv[2])) {
-        g_object_unref (client);
+        kiro_client_free (client);
         return -1;
     }
 
     kiro_client_sync (client);
-    KiroTrb *trb = kiro_trb_new ();
     kiro_trb_adopt (trb, kiro_client_get_memory (client));
+    
+    
     _Bool ok =
         init_app ("UCA Images", NULL, SDL_INIT_VIDEO) &&
         SDL_SetVideoMode (512, 512, 8, SDL_HWSURFACE);
@@ -62,20 +64,19 @@ main ( int argc, char *argv[] )
     SDL_Surface *data_sf = SDL_CreateRGBSurfaceFrom (
                                kiro_trb_get_element (trb, 0), 512, 512, 8, 512,
                                mask, mask, mask, 0);
-    SDL_Color colors[256];
+   
 
+    SDL_Color colors[256];
     for (int i = 0; i < 256; i++) {
         colors[i].r = i;
         colors[i].g = i;
         colors[i].b = i;
     }
-
     SDL_SetPalette (data_sf, SDL_LOGPAL | SDL_PHYSPAL, colors, 0, 256);
     SDL_SetEventFilter (filter);
+    
+    
     int cont = 1;
-
-    //struct KiroTrbInfo *header = (struct KiroTrbInfo *)kiro_trb_get_raw_buffer(trb);
-
     while (cont) {
         for (SDL_Event event; SDL_PollEvent (&event);)
             if (event.type == SDL_QUIT) cont = 0;
@@ -88,7 +89,8 @@ main ( int argc, char *argv[] )
         render (data_sf);
     }
 
-    g_object_unref (client);
+    kiro_client_free (client);
+    kiro_trb_free (trb);
     return 0;
 }
 

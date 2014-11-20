@@ -15,14 +15,14 @@ main ( int argc, char *argv[] )
     }
 
     KiroClient *client = kiro_client_new ();
+    KiroTrb *trb = kiro_trb_new ();
 
     if (-1 == kiro_client_connect (client, argv[1], argv[2])) {
-        g_object_unref (client);
+        kiro_client_free (client);
         return -1;
     }
 
     kiro_client_sync (client);
-    KiroTrb *trb = kiro_trb_new ();
     kiro_trb_adopt (trb, kiro_client_get_memory (client));
 
     GTimer *timer = g_timer_new ();
@@ -39,7 +39,8 @@ while (1) {
     printf ("Average Latency: %fus\n", (elapsed/50000.)*1000*1000);
 }
     g_timer_stop (timer);
-    g_object_unref (client);
+    kiro_client_free (client);
+    kiro_trb_free (trb);
     return 0;
 }
 

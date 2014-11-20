@@ -17,7 +17,7 @@ main ( int argc, char *argv[] )
     KiroClient *client = kiro_client_new ();
 
     if (-1 == kiro_client_connect (client, argv[1], argv[2])) {
-        g_object_unref (client);
+        kiro_client_free (client);
         return -1;
     }
 
@@ -40,7 +40,8 @@ while (1) {
     printf ("Throughput: %.2fGbyte/s\n",((size * 500) / elapsed)/(1024*1024*1024));
 }
     g_timer_stop (timer);
-    g_object_unref (client);
+    kiro_client_free (client);
+    kiro_trb_free (client);
     return 0;
 }
 

@@ -72,11 +72,12 @@ struct _KiroClientClass {
 /* GObject and GType functions */
 GType       kiro_client_get_type            (void);
 
-KiroClient *kiro_client_new                 (void);
+KiroClient* kiro_client_new                 (void);
+
+void        kiro_client_free                (KiroClient *client);
+
 
 /* client functions */
-
-
 int         kiro_client_connect             (KiroClient *client, const char *dest_addr, const char *dest_port);
 
 int         kiro_client_sync                (KiroClient *client);

@@ -72,6 +72,19 @@ kiro_server_new (void)
 }
 
 
+void
+kiro_server_free (KiroServer *server)
+{
+    if (!server)
+        return;
+
+    if (KIRO_IS_SERVER (server))
+        g_object_unref (server);
+    else
+        g_warning ("Trying to use kiro_server_free on an object which is not a KIRO server. Ignoring...");
+}
+
+
 static void
 kiro_server_init (KiroServer *self)
 {
@@ -272,8 +285,6 @@ event_loop (void *self)
 }
 
 
-
-
 int
 kiro_server_start (KiroServer *self, char *address, char *port, void *mem, size_t mem_size)
 {
@@ -394,10 +405,4 @@ kiro_server_stop (KiroServer *self)
     priv->ec = NULL;
     g_message ("Server stopped successfully");
 }
-
-
-
-
-
-
 
