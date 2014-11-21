@@ -92,6 +92,7 @@ static void
 kiro_client_finalize (GObject *object)
 {
     //PASS
+    G_OBJECT_CLASS (kiro_client_parent_class)->finalize (object);
 }
 
 

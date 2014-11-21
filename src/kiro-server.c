@@ -99,6 +99,8 @@ kiro_server_finalize (GObject *object)
     KiroServer *self = KIRO_SERVER (object);
     //Clean up the server
     kiro_server_stop (self);
+
+    G_OBJECT_CLASS (kiro_server_parent_class)->finalize (object);
 }
 
 

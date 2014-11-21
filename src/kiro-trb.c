@@ -99,6 +99,8 @@ kiro_trb_finalize (GObject *object)
 
     if (priv->mem)
         free (priv->mem);
+
+    G_OBJECT_CLASS (kiro_trb_parent_class)->finalize (object);
 }
 
 
