@@ -288,7 +288,7 @@ event_loop (void *self)
 
 
 int
-kiro_server_start (KiroServer *self, char *address, char *port, void *mem, size_t mem_size)
+kiro_server_start (KiroServer *self, const char *address, const char *port, void *mem, size_t mem_size)
 {
     KiroServerPrivate *priv = KIRO_SERVER_GET_PRIVATE (self);
 
@@ -307,7 +307,14 @@ kiro_server_start (KiroServer *self, char *address, char *port, void *mem, size_
     hints.ai_port_space = RDMA_PS_IB;
     hints.ai_flags = RAI_PASSIVE;
 
-    if (rdma_getaddrinfo (address, port, &hints, &res_addrinfo)) {
+    char *addr_c = g_strdup (address);
+    char *port_c = g_strdup (port);
+
+    int rtn = rdma_getaddrinfo (addr_c, port_c, &hints, &res_addrinfo);
+    g_free (addr_c);
+    g_free (port_c);
+    
+    if (rtn) {
         g_critical ("Failed to create address information: %s", strerror (errno));
         return -1;
     }
@@ -371,6 +378,8 @@ kiro_server_start (KiroServer *self, char *address, char *port, void *mem, size_
 static void
 disconnect_client (gpointer data, gpointer user_data)
 {
+    (void)user_data;
+    
     if (data) {
         struct rdma_cm_id *id = (struct rdma_cm_id *)data;
         struct kiro_connection_context *ctx = (struct kiro_connection_context *) (id->context);

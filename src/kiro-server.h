@@ -70,10 +70,36 @@ struct _KiroServerClass {
 
 
 /* GObject and GType functions */
+
+/**
+ * kiro_server_get_type: (skip)
+ * Returns: GType of KiroServer
+ */
 GType        kiro_server_get_type            (void);
 
-KiroServer   *kiro_server_new                (void);
+/**
+ * kiro_server_new - Creates a new #KiroServer
+ * Returns: (transfer full): A pointer to a new #KiroServer
+ * Description:
+ *   Creates a new, unbound #KiroServer and returns a pointer to it.
+ * See also:
+ *   kiro_server_start, kiro_server_free
+ */
+KiroServer*  kiro_server_new                (void);
 
+/**
+ * kiro_server_free - 'Destroys' the given #KiroServer
+ * @server: The #KiroServer that is to be freed
+ * Description:
+ *   Transitions the #KiroServer through all necessary shutdown routines and
+ *   frees the object memory.
+ * Note:
+ *   The memory that is given to the server when calling kiro_server_start will
+ *   NOT be freed! The user is responsible to free this memory, if no longer
+ *   needed.
+ * See also:
+ *   kiro_server_start, kiro_server_new
+ */
 void         kiro_server_free                (KiroServer *server);
 
 
@@ -84,7 +110,7 @@ void         kiro_server_free                (KiroServer *server);
  * @server: #KiroServer to perform the operation on
  * @bind_addr: Local address to bind the server to
  * @bind_port: Local port to listen for connections
- * @mem: Pointer to the memory that is to be provided
+ * @mem: (transfer none): Pointer to the memory that is to be provided
  * @mem_size: Size in bytes of the given memory
  * Description:
  *   Starts the #KiroServer to provide the given memory to any connecting
@@ -99,10 +125,9 @@ void         kiro_server_free                (KiroServer *server);
  *   and return the chosen port as return value.
  *   If server creation fails, -1 is returned instead.
  * See also:
- *   kiro_trb_reshape, kiro_trb_adopt,
- *   kiro_trb_clone
+ *   kiro_server_new,
  */
-int kiro_server_start (KiroServer *server, char *bind_addr, char *bind_port, void *mem, size_t mem_size);
+int kiro_server_start (KiroServer *server, const char *bind_addr, const char *bind_port, void *mem, size_t mem_size);
 
 /**
  * kiro_server_stop - Stops the server

@@ -78,10 +78,35 @@ struct KiroTrbInfo {
 
 
 /* GObject and GType functions */
+/**
+ * kiro_trb_get_type: (skip)
+ * Returns: GType of #KiroTrb
+ */
 GType       kiro_trb_get_type           (void);
 
+/**
+ * kiro_trb_new - Creates a new #KiroTrb
+ * Returns: (transfer full): A pointer to a new #KiroTrb
+ * Description:
+ *   Creates a new, unshaped #KiroTrb and returns a pointer to it.
+ * See also:
+ *   kiro_trb_free, kiro_trb_reshape
+ */
 KiroTrb*    kiro_trb_new                (void);
 
+/**
+ * kiro_trb_free - 'Destroys' the given #KiroTrb
+ * @trb: (transfer none): The #KiroTrb that is to be freed
+ * Description:
+ *   Clears all underlying memory and frees the object memory. 
+ * Note:
+ *   The internal memory is also freed when calling this function. If you want
+ *   to continue using the raw @trb memory after call this function, you need to
+ *   memcpy() its content using the information optained from
+ *   kiro_trb_get_raw_buffer and kiro_trb_get_raw_size. 
+ * See also:
+ *   kiro_trb_new
+ */
 void        kiro_trb_free               (KiroTrb *trb);
 
 

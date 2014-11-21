@@ -28,7 +28,8 @@ main ( int argc, char *argv[] )
     GTimer *timer = g_timer_new ();
 
 
-while (1) {    
+while (1) {   
+    g_timer_reset (timer);
     int i = 0;
     while(i < 500) {
         kiro_client_sync (client);
@@ -41,7 +42,7 @@ while (1) {
 }
     g_timer_stop (timer);
     kiro_client_free (client);
-    kiro_trb_free (client);
+    kiro_trb_free (trb);
     return 0;
 }
 

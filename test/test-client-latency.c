@@ -35,7 +35,6 @@ while (1) {
     }
 
     double elapsed = g_timer_elapsed (timer, NULL);
-    size_t size = kiro_client_get_memory_size (client);
     printf ("Average Latency: %fus\n", (elapsed/50000.)*1000*1000);
 }
     g_timer_stop (timer);

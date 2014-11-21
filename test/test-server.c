@@ -99,8 +99,8 @@ static const guint DIGIT_HEIGHT = 5;
 static void
 print_number (gchar *buffer, guint number, guint x, guint y, guint width)
 {
-    for (int i = 0; i < DIGIT_WIDTH; i++) {
-        for (int j = 0; j < DIGIT_HEIGHT; j++) {
+    for (guint i = 0; i < DIGIT_WIDTH; i++) {
+        for (guint j = 0; j < DIGIT_HEIGHT; j++) {
             char val = (char) g_digits[number][j * DIGIT_WIDTH + i];
 
             if (val != 0x00) {
@@ -131,7 +131,7 @@ print_current_frame (gchar *buffer, guint number, guint width, guint height, GRa
     //for every row again.
     char default_line[width];
 
-    for (int p = 0; p < width; p++) {
+    for (guint p = 0; p < width; p++) {
         default_line[p] = (char) ((p * 256) / (width));
     }
 

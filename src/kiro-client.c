@@ -85,6 +85,9 @@ kiro_client_init (KiroClient *self)
 {
     KiroClientPrivate *priv = KIRO_CLIENT_GET_PRIVATE (self);
     memset (priv, 0, sizeof (&priv));
+
+    //Hack to make the 'unused function' from the kiro-rdma include go away...
+    kiro_attach_qp (NULL);
 }
 
 
@@ -118,10 +121,15 @@ kiro_client_connect (KiroClient *self, const char *address, const char *port)
     struct rdma_addrinfo hints, *res_addrinfo;
 
     memset (&hints, 0, sizeof (hints));
-
     hints.ai_port_space = RDMA_PS_IB;
 
-    if (rdma_getaddrinfo (address, port, &hints, &res_addrinfo)) {
+    char *addr_c = g_strdup (address);
+    char *port_c = g_strdup (port);
+    int rtn = rdma_getaddrinfo (addr_c, port_c, &hints, &res_addrinfo);
+    g_free (addr_c);
+    g_free (port_c);
+
+    if (rtn) {
         g_critical ("Failed to get address information for %s:%s : %s", address, port, strerror (errno));
         return -1;
     }
@@ -200,7 +208,7 @@ kiro_client_connect (KiroClient *self, const char *address, const char *port)
 
     g_debug ("Got RDMI Access information from Server");
     ctx->peer_mr = (((struct kiro_ctrl_msg *) (ctx->cf_mr_recv->mem))->peer_mri);
-    g_debug ("Expected Memory Size is: %u", ctx->peer_mr.length);
+    g_debug ("Expected Memory Size is: %zu", ctx->peer_mr.length);
     ctx->rdma_mr = kiro_create_rdma_memory (priv->conn->pd, ctx->peer_mr.length, IBV_ACCESS_LOCAL_WRITE);
 
     if (!ctx->rdma_mr) {
@@ -228,12 +236,9 @@ kiro_client_sync (KiroClient *self)
 
     struct kiro_connection_context *ctx = (struct kiro_connection_context *)priv->conn->context;
 
-    if (rdma_post_read (priv->conn, priv->conn, ctx->rdma_mr->mem, ctx->peer_mr.length, ctx->rdma_mr->mr, 0, ctx->peer_mr.addr, ctx->peer_mr.rkey)) {
+    if (rdma_post_read (priv->conn, priv->conn, ctx->rdma_mr->mem, ctx->peer_mr.length, ctx->rdma_mr->mr, 0, (uint64_t)ctx->peer_mr.addr, ctx->peer_mr.rkey)) {
         g_critical ("Failed to RDMA_READ from server: %s", strerror (errno));
-        rdma_disconnect (priv->conn);
-        kiro_destroy_connection_context (&ctx);
-        rdma_destroy_ep (priv->conn);
-        return -1;
+        goto fail;
     }
 
     struct ibv_wc wc;
@@ -257,10 +262,7 @@ kiro_client_sync (KiroClient *self)
     }
 
 fail:
-    rdma_disconnect (priv->conn);
-    kiro_destroy_connection_context (&ctx);
-    rdma_destroy_ep (priv->conn);
-    priv->conn = NULL;
+    kiro_destroy_connection (&(priv->conn)); 
     return -1;
 }
 

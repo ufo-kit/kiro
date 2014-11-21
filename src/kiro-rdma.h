@@ -81,7 +81,7 @@ kiro_attach_qp (struct rdma_cm_id *id)
     id->recv_cq = id->send_cq; //we use one shared completion queue
     struct ibv_qp_init_attr qp_attr;
     memset (&qp_attr, 0, sizeof (struct ibv_qp_init_attr));
-    qp_attr.qp_context = (uintptr_t)id;
+    qp_attr.qp_context = (void *) (uintptr_t) id;
     qp_attr.send_cq = id->send_cq;
     qp_attr.recv_cq = id->recv_cq;
     qp_attr.qp_type = IBV_QPT_RC;
