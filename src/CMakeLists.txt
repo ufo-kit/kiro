@@ -5,8 +5,9 @@ set_target_properties(kiro PROPERTIES
 )
 target_link_libraries(kiro m rdmacm ibverbs pthread)
 
-install(FILES kiro-rdma.h kiro-trb.h kiro-client.h kiro-server.h DESTINATION ${HEADER_INSTALL_DIR})
+install(FILES kiro-rdma.h kiro-trb.h kiro-client.h kiro-server.h DESTINATION
+    ${KIRO_INCLUDEDIR}/kiro)
 
 install(TARGETS kiro
-    LIBRARY DESTINATION ${LIB_INSTALL_DIR}
+    LIBRARY DESTINATION ${KIRO_LIBDIR}
 )
