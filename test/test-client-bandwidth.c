@@ -10,7 +10,7 @@ int
 main ( int argc, char *argv[] )
 {
     if (argc < 3) {
-        printf ("Not enough aruments. Usage: ./client <address> <port>\n");
+        printf ("Not enough aruments. Usage: kiro-test-bandwidth <address> <port>\n");
         return -1;
     }
 
