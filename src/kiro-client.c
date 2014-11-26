@@ -126,7 +126,7 @@ process_cm_event (GIOChannel *source, GIOCondition condition, gpointer data)
 
     if (0 <= rdma_get_cm_event (priv->ec, &active_event)) {
         //Disable cancellation to prevent undefined states during shutdown
-        struct rdma_cm_event *ev = malloc (sizeof (*active_event));
+        struct rdma_cm_event *ev = g_try_malloc (sizeof (*active_event));
 
         if (!ev) {
             g_critical ("Unable to allocate memory for Event handling!");
