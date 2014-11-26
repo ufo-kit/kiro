@@ -135,14 +135,6 @@ connect_client (struct rdma_cm_id *client)
         return -1;
     }
 
-    ctx->cf_mr_send = (struct kiro_rdma_mem *)calloc (1, sizeof (struct kiro_rdma_mem));
-    ctx->cf_mr_recv = (struct kiro_rdma_mem *)calloc (1, sizeof (struct kiro_rdma_mem));
-
-    if (!ctx->cf_mr_recv || !ctx->cf_mr_send) {
-        g_critical ("Failed to allocate Control Flow Memory Container");
-        goto error;
-    }
-
     ctx->cf_mr_recv = kiro_create_rdma_memory (client->pd, sizeof (struct kiro_ctrl_msg), IBV_ACCESS_LOCAL_WRITE);
     ctx->cf_mr_send = kiro_create_rdma_memory (client->pd, sizeof (struct kiro_ctrl_msg), IBV_ACCESS_LOCAL_WRITE);
 
