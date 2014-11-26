@@ -125,6 +125,23 @@ void        kiro_client_free                (KiroClient *client);
 int         kiro_client_connect             (KiroClient *client, const char *dest_addr, const char *dest_port);
 
 /**
+ * kiro_client_disconnect - Diconnect a #KiroClient from the Server
+ * @client: (transfer none): The #KiroClient to disconnect
+ * Description:
+ *   Disconnects the given #KiroClient from the KIRO server that it is connected
+ *   to. If the @client is not connected, this function has no effect.
+ * Note:
+ *   The memory content that has been transfered from the server is
+ *   automatically freed when calling this function. If you want to continue
+ *   using the memory after disconnecting the @client, make sure to memcpy() it
+ *   first, using the informations obtained from kiro_client_get_memory() and
+ *   kiro_client_get_memory_size().
+ * See also:
+ *   kiro_server_connect
+ */
+void        kiro_client_disconnect             (KiroClient *client);
+
+/**
  * kiro_client_sync - Read data from the connected server
  * @client: (transfer none): The #KiroServer to use sync on
  * Returns:

@@ -54,10 +54,10 @@ struct _KiroServerPrivate {
     struct rdma_cm_id           *base;           // Base-Listening-Connection
     GList                       *clients;        // List of connected clients
     guint                       next_client_id;  // Numeric ID for the next client that will connect
-    int                         close_signal;    // Integer flag used to signal to the listener-thread that the server is going to shut down
     void                        *mem;            // Pointer to the server buffer
     size_t                      mem_size;        // Server Buffer Size in bytes
 
+    gboolean                    close_signal;    // Flag used to signal event listening to stop for server shutdown
     GMainLoop                   *main_loop;      // Main loop of the server for event polling and handling
     GIOChannel                  *g_io_ec;        // GLib IO Channel encapsulation for the connection manager event channel
     GThread                     *main_thread;    // Main KIRO server thread
@@ -220,7 +220,7 @@ welcome_client (struct rdma_cm_id *client, void *mem, size_t mem_size)
 }
 
 
-gboolean
+static gboolean
 process_cm_event (GIOChannel *source, GIOCondition condition, gpointer data)
 {
     // Right now, we don't need 'source' and 'condition'
@@ -245,7 +245,7 @@ process_cm_event (GIOChannel *source, GIOCondition condition, gpointer data)
         rdma_ack_cm_event (active_event);
 
         if (ev->event == RDMA_CM_EVENT_CONNECT_REQUEST) {
-            if (0 != priv->close_signal) {
+            if (TRUE == priv->close_signal) {
                 //Main thread has signalled shutdown!
                 //Don't connect this client any more.
                 //Sorry mate!
@@ -420,7 +420,7 @@ kiro_server_stop (KiroServer *self)
         return;
 
     //Shut down event listening
-    priv->close_signal = 1;
+    priv->close_signal = TRUE;
     g_debug ("Event handling stopped");
     
     g_list_foreach (priv->clients, disconnect_client, NULL);
@@ -440,12 +440,16 @@ kiro_server_stop (KiroServer *self)
     // Unref and thus free it.
     g_io_channel_unref (priv->g_io_ec);
     priv->g_io_ec = NULL;
+    priv->close_signal = FALSE;
 
-    priv->close_signal = 0;
-
-    
+    // kiro_destroy_connection would try to call rdma_disconnect on the given
+    // connection. But the server never 'connects' to anywhere, so this would
+    // cause a crash. We need to destroy the enpoint manually without disconnect
+    struct kiro_connection_context *ctx = (struct kiro_connection_context *) (priv->base->context);
+    kiro_destroy_connection_context (&ctx);
     rdma_destroy_ep (priv->base);
     priv->base = NULL;
+
     rdma_destroy_event_channel (priv->ec);
     priv->ec = NULL;
     g_message ("Server stopped successfully");
