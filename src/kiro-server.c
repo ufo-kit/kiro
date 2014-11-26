@@ -127,7 +127,7 @@ connect_client (struct rdma_cm_id *client)
         return -1;
     }
 
-    struct kiro_connection_context *ctx = (struct kiro_connection_context *)calloc (1, sizeof (struct kiro_connection_context));
+    struct kiro_connection_context *ctx = (struct kiro_connection_context *)g_try_malloc0 (sizeof (struct kiro_connection_context));
 
     if (!ctx) {
         g_critical ("Failed to create connection context");
@@ -170,7 +170,7 @@ static int
 welcome_client (struct rdma_cm_id *client, void *mem, size_t mem_size)
 {
     struct kiro_connection_context *ctx = (struct kiro_connection_context *) (client->context);
-    ctx->rdma_mr = (struct kiro_rdma_mem *)calloc (1, sizeof (struct kiro_rdma_mem));
+    ctx->rdma_mr = (struct kiro_rdma_mem *)g_try_malloc0 (sizeof (struct kiro_rdma_mem));
 
     if (!ctx->rdma_mr) {
         g_critical ("Failed to allocate RDMA Memory Container: %s", strerror (errno));
@@ -225,7 +225,7 @@ process_cm_event (GIOChannel *source, GIOCondition condition, gpointer data)
 
     if (0 <= rdma_get_cm_event (priv->ec, &active_event)) {
         //Disable cancellation to prevent undefined states during shutdown
-        struct rdma_cm_event *ev = malloc (sizeof (*active_event));
+        struct rdma_cm_event *ev = g_try_malloc (sizeof (*active_event));
 
         if (!ev) {
             g_critical ("Unable to allocate memory for Event handling!");
@@ -276,7 +276,7 @@ process_cm_event (GIOChannel *source, GIOCondition condition, gpointer data)
             g_debug ("Connection closed successfully. %u connected clients remaining", g_list_length (priv->clients));
         }
 
-        free (ev);
+        g_free (ev);
     }
     return TRUE;
 }

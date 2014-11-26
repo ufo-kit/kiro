@@ -98,7 +98,7 @@ kiro_trb_finalize (GObject *object)
     KiroTrbPrivate *priv = KIRO_TRB_GET_PRIVATE (self);
 
     if (priv->mem)
-        free (priv->mem);
+        g_free (priv->mem);
 
     G_OBJECT_CLASS (kiro_trb_parent_class)->finalize (object);
 }
@@ -223,7 +223,7 @@ kiro_trb_purge (KiroTrb *self, gboolean free_memory)
     priv->element_size = 0;
 
     if (free_memory)
-        free (priv->mem);
+        g_free (priv->mem);
 
     priv->mem = NULL;
 }
@@ -244,7 +244,7 @@ kiro_trb_reshape (KiroTrb *self, uint64_t element_size, uint64_t element_count)
         return -1;
 
     size_t new_size = (element_size * element_count) + sizeof (struct KiroTrbInfo);
-    void *newmem = malloc (new_size);
+    void *newmem = g_try_malloc0 (new_size);
 
     if (!newmem)
         return -1;
@@ -333,7 +333,7 @@ kiro_trb_adopt (KiroTrb *self, void *buff_in)
     KiroTrbPrivate *priv = KIRO_TRB_GET_PRIVATE (self);
 
     if (priv->mem)
-        free (priv->mem);
+        g_free (priv->mem);
 
     priv->mem = buff_in;
     priv->initialized = 1;
@@ -346,7 +346,7 @@ kiro_trb_clone (KiroTrb *self, void *buff_in)
 {
     KiroTrbPrivate *priv = KIRO_TRB_GET_PRIVATE (self);
     struct KiroTrbInfo *header = (struct KiroTrbInfo *)buff_in;
-    void *newmem = malloc (header->buffer_size_bytes);
+    void *newmem = g_try_malloc0 (header->buffer_size_bytes);
 
     if (!newmem)
         return -1;
@@ -354,7 +354,7 @@ kiro_trb_clone (KiroTrb *self, void *buff_in)
     memcpy (newmem, buff_in, header->buffer_size_bytes);
 
     if (priv->mem)
-        free (priv->mem);
+        g_free (priv->mem);
 
     priv->mem = newmem;
     priv->initialized = 1;
