@@ -150,7 +150,7 @@ kiro_client_connect (KiroClient *self, const char *address, const char *port)
     }
 
     g_debug ("Route to server resolved");
-    struct kiro_connection_context *ctx = (struct kiro_connection_context *)calloc (1, sizeof (struct kiro_connection_context));
+    struct kiro_connection_context *ctx = (struct kiro_connection_context *)g_try_malloc (sizeof (struct kiro_connection_context));
 
     if (!ctx) {
         g_critical ("Failed to create connection context (Out of memory?)");
