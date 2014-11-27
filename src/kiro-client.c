@@ -51,9 +51,13 @@ struct _KiroClientPrivate {
 
     /* 'Real' private structures */
     /* (Not accessible by properties) */
-    struct rdma_event_channel   *ec;        // Main Event Channel
-    struct rdma_cm_id           *conn;      // Connection to the Server
+    struct rdma_event_channel   *ec;          // Main Event Channel
+    struct rdma_cm_id           *conn;        // Connection to the Server
 
+    gboolean                    close_signal; // Flag used to signal event listening to stop for connection tear-down
+    GMainLoop                   *main_loop;   // Main loop of the server for event polling and handling
+    GIOChannel                  *g_io_ec;     // GLib IO Channel encapsulation for the connection manager event channel
+    GThread                     *main_thread; // Main KIRO client thread
 };
 
 
@@ -94,7 +98,8 @@ kiro_client_init (KiroClient *self)
 static void
 kiro_client_finalize (GObject *object)
 {
-    //PASS
+    if (KIRO_IS_CLIENT (object))
+        kiro_client_disconnect ((KiroClient *)object);
     G_OBJECT_CLASS (kiro_client_parent_class)->finalize (object);
 }
 
@@ -105,6 +110,48 @@ kiro_client_class_init (KiroClientClass *klass)
     GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
     gobject_class->finalize = kiro_client_finalize;
     g_type_class_add_private (klass, sizeof (KiroClientPrivate));
+}
+
+
+static gboolean
+process_cm_event (GIOChannel *source, GIOCondition condition, gpointer data)
+{
+    // Right now, we don't need 'source' and 'condition'
+    // Tell the compiler to ignore them by (void)-ing them
+    (void) source;
+    (void) condition;
+
+    KiroClientPrivate *priv = (KiroClientPrivate *)data;
+    struct rdma_cm_event *active_event;
+
+    if (0 <= rdma_get_cm_event (priv->ec, &active_event)) {
+        //Disable cancellation to prevent undefined states during shutdown
+        struct rdma_cm_event *ev = g_try_malloc (sizeof (*active_event));
+
+        if (!ev) {
+            g_critical ("Unable to allocate memory for Event handling!");
+            rdma_ack_cm_event (active_event);
+            return FALSE;
+        }
+
+        memcpy (ev, active_event, sizeof (*active_event));
+        rdma_ack_cm_event (active_event);
+
+        if (ev->event == RDMA_CM_EVENT_DISCONNECTED) {
+            g_debug ("Connection closed by server");
+        }
+
+        free (ev);
+    }
+    return TRUE;
+}
+
+
+gpointer
+start_client_main_loop (gpointer data)
+{
+    g_main_loop_run ((GMainLoop *)data);
+    return NULL;
 }
 
 
@@ -186,6 +233,7 @@ kiro_client_connect (KiroClient *self, const char *address, const char *port)
     }
 
     g_message ("Connection to server established");
+    priv->ec = priv->conn->channel; //For easy access
     struct ibv_wc wc;
 
     if (rdma_get_recv_comp (priv->conn, &wc) < 0) {
@@ -208,6 +256,15 @@ kiro_client_connect (KiroClient *self, const char *address, const char *port)
         rdma_destroy_ep (priv->conn);
         return -1;
     }
+
+    priv->main_loop = g_main_loop_new (NULL, FALSE);
+    priv->g_io_ec = g_io_channel_unix_new (priv->ec->fd);
+    g_io_add_watch (priv->g_io_ec, G_IO_IN | G_IO_PRI | G_IO_ERR | G_IO_HUP, process_cm_event, (gpointer)priv);
+    priv->main_thread = g_thread_new ("KIRO Client main loop", start_client_main_loop, priv->main_loop);
+
+    // We gave control to the main_loop (with add_watch) and don't need our ref
+    // any longer
+    g_io_channel_unref (priv->g_io_ec);
 
     g_message ("Connected to %s:%s", address, port);
     return 0;
@@ -288,5 +345,50 @@ kiro_client_get_memory_size (KiroClient *self)
         return 0;
 
     return ctx->rdma_mr->size;
+}
+
+
+void
+kiro_client_disconnect (KiroClient *self)
+{
+    if (!self)
+        return;
+
+    KiroClientPrivate *priv = KIRO_CLIENT_GET_PRIVATE (self);
+
+    if (!priv->conn)
+        return;
+
+    //Shut down event listening
+    priv->close_signal = TRUE;
+    g_debug ("Event handling stopped");
+
+    // Stop the main loop and clear its memory
+    g_main_loop_quit (priv->main_loop);
+    g_main_loop_unref (priv->main_loop);
+    priv->main_loop = NULL;
+
+    // Ask the main thread to join (It probably already has, but we do it
+    // anyways. Just in case!)
+    g_thread_join (priv->main_thread);
+    priv->main_thread = NULL;
+
+    // We don't need the connection management IO channel container any more.
+    // Unref and thus free it.
+    g_io_channel_unref (priv->g_io_ec);
+    priv->g_io_ec = NULL;
+
+    priv->close_signal = FALSE;
+
+    //kiro_destroy_connection does not free RDMA memory. Therefore, we need to
+    //cache the memory pointer and free the memory afterwards manually 
+    struct kiro_connection_context *ctx = (struct kiro_connection_context *) (priv->conn->context);
+    void *rdma_mem = ctx->rdma_mr->mem;
+    kiro_destroy_connection (&(priv->conn));
+    free (rdma_mem);
+
+    // priv->ec is just an easy-access pointer. Don't free it. Just NULL it 
+    priv->ec = NULL;
+    g_message ("Client disconnected from server");
 }
 

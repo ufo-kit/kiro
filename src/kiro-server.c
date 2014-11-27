@@ -54,11 +54,13 @@ struct _KiroServerPrivate {
     struct rdma_cm_id           *base;           // Base-Listening-Connection
     GList                       *clients;        // List of connected clients
     guint                       next_client_id;  // Numeric ID for the next client that will connect
-    pthread_t                   event_listener;  // Pointer to the completion-listener thread of this connection
-    int                         close_signal;    // Integer flag used to signal to the listener-thread that the server is going to shut down
     void                        *mem;            // Pointer to the server buffer
     size_t                      mem_size;        // Server Buffer Size in bytes
 
+    gboolean                    close_signal;    // Flag used to signal event listening to stop for server shutdown
+    GMainLoop                   *main_loop;      // Main loop of the server for event polling and handling
+    GIOChannel                  *g_io_ec;        // GLib IO Channel encapsulation for the connection manager event channel
+    GThread                     *main_thread;    // Main KIRO server thread
 };
 
 
@@ -210,71 +212,80 @@ welcome_client (struct rdma_cm_id *client, void *mem, size_t mem_size)
 }
 
 
-static void *
-event_loop (void *self)
+static gboolean
+process_cm_event (GIOChannel *source, GIOCondition condition, gpointer data)
 {
-    KiroServerPrivate *priv = KIRO_SERVER_GET_PRIVATE ((KiroServer *)self);
+    // Right now, we don't need 'source' and 'condition'
+    // Tell the compiler to ignore them by (void)-ing them
+    (void) source;
+    (void) condition;
+
+    KiroServerPrivate *priv = (KiroServerPrivate *)data;
     struct rdma_cm_event *active_event;
 
-    while (0 == priv->close_signal) {
-        if (0 <= rdma_get_cm_event (priv->ec, &active_event)) {
-            //Disable cancellation to prevent undefined states during shutdown
-            pthread_setcancelstate (PTHREAD_CANCEL_DISABLE, NULL);
-            struct rdma_cm_event *ev = g_try_malloc (sizeof (*active_event));
+    if (0 <= rdma_get_cm_event (priv->ec, &active_event)) {
+        //Disable cancellation to prevent undefined states during shutdown
+        struct rdma_cm_event *ev = g_try_malloc (sizeof (*active_event));
 
-            if (!ev) {
-                g_critical ("Unable to allocate memory for Event handling!");
-                rdma_ack_cm_event (active_event);
-                continue;
-            }
-
-            memcpy (ev, active_event, sizeof (*active_event));
+        if (!ev) {
+            g_critical ("Unable to allocate memory for Event handling!");
             rdma_ack_cm_event (active_event);
-
-            if (ev->event == RDMA_CM_EVENT_CONNECT_REQUEST) {
-                if (0 != priv->close_signal) {
-                    //Main thread has signalled shutdown!
-                    //Don't connect this client any more.
-                    //Sorry mate!
-                    rdma_reject (ev->id, NULL, 0);
-                }
-
-                g_debug ("Got connection request from client");
-
-                if (0 == connect_client (ev->id)) {
-                    // Post a welcoming "Recieve" for handshaking
-                    if (0 == welcome_client (ev->id, priv->mem, priv->mem_size)) {
-                        // Connection set-up successfully! (Server)
-                        struct kiro_connection_context *ctx = (struct kiro_connection_context *) (ev->id->context);
-                        ctx->identifier = priv->next_client_id++;
-                        priv->clients = g_list_append (priv->clients, (gpointer)ev->id);
-                        g_debug ("Client connection assigned with ID %u", ctx->identifier);
-                        g_debug ("Currently %u clients in total are connected", g_list_length (priv->clients));
-                    }
-                }
-            }
-            else if (ev->event == RDMA_CM_EVENT_DISCONNECTED) {
-                GList *client = g_list_find (priv->clients, (gconstpointer) ev->id);
-
-                if (client) {
-                    struct kiro_connection_context *ctx = (struct kiro_connection_context *) (ev->id->context);
-                    g_debug ("Got disconnect request from client ID %u", ctx->identifier);
-                    priv->clients = g_list_delete_link (priv->clients, client);
-                }
-                else
-                    g_debug ("Got disconnect request from unknown client");
-
-                kiro_destroy_connection (& (ev->id));
-                g_debug ("Connection closed successfully. %u connected clients remaining", g_list_length (priv->clients));
-            }
-
-            g_free (ev);
+            return FALSE;
         }
 
-        pthread_setcancelstate (PTHREAD_CANCEL_ENABLE, NULL);
-    }
+        memcpy (ev, active_event, sizeof (*active_event));
+        rdma_ack_cm_event (active_event);
 
-    g_debug ("Closing Event Listener Thread");
+        if (ev->event == RDMA_CM_EVENT_CONNECT_REQUEST) {
+            if (TRUE == priv->close_signal) {
+                //Main thread has signalled shutdown!
+                //Don't connect this client any more.
+                //Sorry mate!
+                rdma_reject (ev->id, NULL, 0);
+                return TRUE;
+            }
+
+            g_debug ("Got connection request from client");
+
+            if (0 == connect_client (ev->id)) {
+                // Post a welcoming "Receive" for handshaking
+                if (0 == welcome_client (ev->id, priv->mem, priv->mem_size)) {
+                    // Connection set-up successfully! (Server)
+                    struct kiro_connection_context *ctx = (struct kiro_connection_context *) (ev->id->context);
+                    ctx->identifier = priv->next_client_id++;
+                    priv->clients = g_list_append (priv->clients, (gpointer)ev->id);
+                    g_debug ("Client connection assigned with ID %u", ctx->identifier);
+                    g_debug ("Currently %u clients in total are connected", g_list_length (priv->clients));
+                }
+            }
+            else
+                g_warning ("Failed to accept client connection: %s", strerror (errno));
+        }
+        else if (ev->event == RDMA_CM_EVENT_DISCONNECTED) {
+            GList *client = g_list_find (priv->clients, (gconstpointer) ev->id);
+
+            if (client) {
+                struct kiro_connection_context *ctx = (struct kiro_connection_context *) (ev->id->context);
+                g_debug ("Got disconnect request from client ID %u", ctx->identifier);
+                priv->clients = g_list_delete_link (priv->clients, client);
+            }
+            else
+                g_debug ("Got disconnect request from unknown client");
+
+            kiro_destroy_connection (& (ev->id));
+            g_debug ("Connection closed successfully. %u connected clients remaining", g_list_length (priv->clients));
+        }
+
+        g_free (ev);
+    }
+    return TRUE;
+}
+
+
+gpointer
+start_server_main_loop (gpointer data)
+{
+    g_main_loop_run ((GMainLoop *)data);
     return NULL;
 }
 
@@ -360,9 +371,17 @@ kiro_server_start (KiroServer *self, const char *address, const char *port, void
         return -1;
     }
 
-    pthread_create (& (priv->event_listener), NULL, event_loop, self);
+    priv->main_loop = g_main_loop_new (NULL, FALSE);
+    priv->g_io_ec = g_io_channel_unix_new (priv->ec->fd);
+    g_io_add_watch (priv->g_io_ec, G_IO_IN | G_IO_PRI | G_IO_ERR | G_IO_HUP, process_cm_event, (gpointer)priv);
+    priv->main_thread = g_thread_new ("KIRO Server main loop", start_server_main_loop, priv->main_loop);
+
+    // We gave control to the main_loop (with add_watch) and don't need our ref
+    // any longer
+    g_io_channel_unref (priv->g_io_ec);
+
+
     g_message ("Enpoint listening");
-    sleep (1);
     return 0;
 }
 
@@ -392,18 +411,37 @@ kiro_server_stop (KiroServer *self)
     if (!priv->base)
         return;
 
-    //Shut down the listener-thread
-    priv->close_signal = 1;
-    pthread_cancel (priv->event_listener);
-    pthread_join (priv->event_listener, NULL);
-    g_debug ("Event Listener Thread stopped");
-    priv->close_signal = 0;
+    //Shut down event listening
+    priv->close_signal = TRUE;
+    g_debug ("Event handling stopped");
     
     g_list_foreach (priv->clients, disconnect_client, NULL);
     g_list_free (priv->clients);
-    
+
+    // Stop the main loop and clear its memory
+    g_main_loop_quit (priv->main_loop);
+    g_main_loop_unref (priv->main_loop);
+    priv->main_loop = NULL;
+
+    // Ask the main thread to join (It probably already has, but we do it
+    // anyways. Just in case!)
+    g_thread_join (priv->main_thread);
+    priv->main_thread = NULL;
+
+    // We don't need the connection management IO channel container any more.
+    // Unref and thus free it.
+    g_io_channel_unref (priv->g_io_ec);
+    priv->g_io_ec = NULL;
+    priv->close_signal = FALSE;
+
+    // kiro_destroy_connection would try to call rdma_disconnect on the given
+    // connection. But the server never 'connects' to anywhere, so this would
+    // cause a crash. We need to destroy the enpoint manually without disconnect
+    struct kiro_connection_context *ctx = (struct kiro_connection_context *) (priv->base->context);
+    kiro_destroy_connection_context (&ctx);
     rdma_destroy_ep (priv->base);
     priv->base = NULL;
+
     rdma_destroy_event_channel (priv->ec);
     priv->ec = NULL;
     g_message ("Server stopped successfully");
