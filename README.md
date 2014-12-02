@@ -89,8 +89,10 @@ Issues:
 * Pointers to device memory may be stale. To inspect device memory data has to be copied with cudaMemcpy from device to host.
 * Sometimes the nvidia driver crashes during boot. 
     * Solution: grep for "Oops" in dmesg and reboot if that happens.
-* Sometimes mlx4_core driver is not assigned to the mellanox card.
+* Sometimes mlx4\_core driver is not assigned to the mellanox card.
     * Solution: Find out device number of mellanox card with lspci (e.g. 3) and run:
+
+
 ---        
     echo "1" > /sys/bus/pci/devices/0000\:03\:00.0/remove
     echo "1" > /sys/bus/pci/rescan
