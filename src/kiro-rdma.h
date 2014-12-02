@@ -16,6 +16,7 @@
    Franklin St, Fifth Floor, Boston, MA 02110, USA
 */
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -25,6 +26,10 @@
 
 
 #include <rdma/rdma_cma.h>
+#ifdef GPUDIRECT
+#include <cuda.h>
+#include <cuda_runtime.h>
+#endif
 
 
 struct kiro_connection_context {
@@ -45,6 +50,14 @@ struct kiro_connection_context {
         KIRO_RDMA_ESTABLISHED,                      // MRI Exchange complete. RDMA is ready
         KIRO_RDMA_ACTIVE                            // RDMA Operation is being performed
     } rdma_state;
+
+
+};
+
+enum kiro_allocation {
+    
+    KIRO_ALLOCATE_HOST_MEMORY = 0,                  // Parameter to allocate host memory 
+    KIRO_ALLOCATE_GPU_MEMORY = 1                    // Parameter to allocate gpu memory 
 
 };
 
@@ -99,38 +112,74 @@ kiro_attach_qp (struct rdma_cm_id *id)
 
 
 static int
-kiro_register_rdma_memory (struct ibv_pd *pd, struct ibv_mr **mr, void *mem, size_t mem_size, int access)
+kiro_register_rdma_memory (struct ibv_pd *pd, struct ibv_mr **mr, void *mem, size_t mem_size, int access, int location)
 {
-    if (mem_size == 0) {
-        printf ("Cant allocate memory of size '0'.\n");
+    if (location == KIRO_ALLOCATE_GPU_MEMORY) {
+#ifdef GPUDIRECT
+        void *mem_handle = mem;
+        int error;
+
+        cudaSetDevice(0);
+
+        if (!mem_handle) {
+            error = cudaMalloc (&mem_handle, mem_size);
+            printf ("DEBUG: Allocating with CUDA.\n");
+        }
+
+        if (!mem_handle) {
+            printf ("Cuda error: %s \n", cudaGetErrorString(error));
+            return -1;
+        }
+        // nv_peer_mem has registered itself as peer with ibverbs. Pinning with ibvervs works with gpu.
+        *mr = ibv_reg_mr (pd, mem_handle, mem_size, access);
+
+        if (! (*mr)) {
+            // Memory Registration failed
+            printf ("Failed to register memory region! ERROR: %s\n", strerror(errno));
+            cudaFree (mem_handle);
+            return -1;
+        }
+
+        return 0;
+#else
+            printf ("Trying to run GPUDIRECT memory allocation without GPUDIRECT support!\n");
+            return -1;
+#endif
+    } else if (location == KIRO_ALLOCATE_HOST_MEMORY) {
+        if (mem_size == 0) {
+            printf ("Cant allocate memory of size '0'.\n");
+            return -1;
+        }
+
+        void *mem_handle = mem;
+
+        if (!mem_handle)
+            mem_handle = malloc (mem_size);
+
+        if (!mem_handle) {
+            printf ("Failed to allocate memory [Register Memory].");
+            return -1;
+        }
+
+        *mr = ibv_reg_mr (pd, mem_handle, mem_size, access);
+
+        if (! (*mr)) {
+            // Memory Registration failed
+            printf ("Failed to register memory region!\n");
+            free (mem_handle);
+            return -1;
+        }
+
+        return 0;
+    } else {
+        printf ("No valid location specified!\n");
         return -1;
     }
-
-    void *mem_handle = mem;
-
-    if (!mem_handle)
-        mem_handle = malloc (mem_size);
-
-    if (!mem_handle) {
-        printf ("Failed to allocate memory [Register Memory].");
-        return -1;
-    }
-
-    *mr = ibv_reg_mr (pd, mem_handle, mem_size, access);
-
-    if (! (*mr)) {
-        // Memory Registration failed
-        printf ("Failed to register memory region!\n");
-        free (mem_handle);
-        return -1;
-    }
-
-    return 0;
 }
 
 
 static struct kiro_rdma_mem *
-kiro_create_rdma_memory (struct ibv_pd *pd, size_t mem_size, int access)
+kiro_create_rdma_memory (struct ibv_pd *pd, size_t mem_size, int access, int location)
 {
     if (mem_size == 0) {
         printf ("Cant allocate memory of size '0'.\n");
@@ -143,8 +192,8 @@ kiro_create_rdma_memory (struct ibv_pd *pd, size_t mem_size, int access)
         printf ("Failed to create new KIRO RDMA Memory.\n");
         return NULL;
     }
-
-    if (kiro_register_rdma_memory (pd, & (krm->mr), krm->mem, mem_size, access)) {
+    
+    if (kiro_register_rdma_memory (pd, & (krm->mr), krm->mem, mem_size, access, location)) {
         free (krm);
         return NULL;
     }

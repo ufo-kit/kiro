@@ -67,6 +67,36 @@ kiro_client_free (client);
 For TRB usage, check the examples in the _test_ directory
 
 
+GPUdirect
+=====================
+
+
+To compile with GPUdirect run cmake with -DGPUDIRECT=ON flag. Example usage is shown in test/test-client-gpudirect.cu and test/test-server-gpudirect.c.
+
+Tested with:
+----------
+* Tesla K40
+* Ubuntu 14.04
+* Kernel 3.13.0-32-generic
+* Cuda 6.5  ([https://developer.nvidia.com/cuda-downloads](https://developer.nvidia.com/cuda-downloads))
+* nvidia driver 340.29 (comes with cuda)
+* mlnx\_ofed ([http://www.mellanox.com/page/products_dyn?product_family=26](http://www.mellanox.com/page/products_dyn?product_family=26))
+* nv\_peer\_mem ([http://www.mellanox.com/page/products_dyn?product_family=116](http://www.mellanox.com/page/products_dyn?product_family=116))
+
+Issues:
+----------
+
+* Pointers to device memory may be stale. To inspect device memory data has to be copied with cudaMemcpy from device to host.
+* Sometimes the nvidia driver crashes during boot. 
+    * Solution: grep for "Oops" in dmesg and reboot if that happens.
+* Sometimes mlx4_core driver is not assigned to the mellanox card.
+    * Solution: Find out device number of mellanox card with lspci (e.g. 3) and run:
+---        
+    echo "1" > /sys/bus/pci/devices/0000\:03\:00.0/remove
+    echo "1" > /sys/bus/pci/rescan
+---
+
+
 Licensing
 =====================
 

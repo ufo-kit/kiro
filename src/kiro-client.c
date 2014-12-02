@@ -211,7 +211,11 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
         else {
             ctx->peer_mr = (((struct kiro_ctrl_msg *) (ctx->cf_mr_recv->mem))->peer_mri);
             g_debug ("Expected Memory Size is: %zu", ctx->peer_mr.length);
-            ctx->rdma_mr = kiro_create_rdma_memory (priv->conn->pd, ctx->peer_mr.length, IBV_ACCESS_LOCAL_WRITE);
+#ifdef GPUDIRECT
+            ctx->rdma_mr = kiro_create_rdma_memory (priv->conn->pd, ctx->peer_mr.length, IBV_ACCESS_LOCAL_WRITE, KIRO_ALLOCATE_GPU_MEMORY);
+#else
+            ctx->rdma_mr = kiro_create_rdma_memory (priv->conn->pd, ctx->peer_mr.length, IBV_ACCESS_LOCAL_WRITE, KIRO_ALLOCATE_HOST_MEMORY);
+#endif
 
             if (!ctx->rdma_mr) {
                 //FIXME: Connection teardown in an event handler routine? Not a good
@@ -249,7 +253,11 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
         kiro_destroy_rdma_memory (ctx->rdma_mr);
         ctx->peer_mr = msg->peer_mri;
         g_debug ("New size is: %zu", ctx->peer_mr.length);
-        ctx->rdma_mr = kiro_create_rdma_memory (priv->conn->pd, ctx->peer_mr.length, IBV_ACCESS_LOCAL_WRITE);
+#ifdef GPUDIRECT
+            ctx->rdma_mr = kiro_create_rdma_memory (priv->conn->pd, ctx->peer_mr.length, IBV_ACCESS_LOCAL_WRITE, KIRO_ALLOCATE_GPU_MEMORY);
+#else
+            ctx->rdma_mr = kiro_create_rdma_memory (priv->conn->pd, ctx->peer_mr.length, IBV_ACCESS_LOCAL_WRITE, KIRO_ALLOCATE_HOST_MEMORY);
+#endif
         G_UNLOCK (sync_lock);
 
         if (!ctx->rdma_mr) {
@@ -373,8 +381,8 @@ kiro_client_connect (KiroClient *self, const char *address, const char *port)
         return -1;
     }
 
-    ctx->cf_mr_recv = kiro_create_rdma_memory (priv->conn->pd, sizeof (struct kiro_ctrl_msg), IBV_ACCESS_LOCAL_WRITE);
-    ctx->cf_mr_send = kiro_create_rdma_memory (priv->conn->pd, sizeof (struct kiro_ctrl_msg), IBV_ACCESS_LOCAL_WRITE);
+    ctx->cf_mr_recv = kiro_create_rdma_memory (priv->conn->pd, sizeof (struct kiro_ctrl_msg), IBV_ACCESS_LOCAL_WRITE, KIRO_ALLOCATE_HOST_MEMORY);
+    ctx->cf_mr_send = kiro_create_rdma_memory (priv->conn->pd, sizeof (struct kiro_ctrl_msg), IBV_ACCESS_LOCAL_WRITE, KIRO_ALLOCATE_HOST_MEMORY);
 
     if (!ctx->cf_mr_recv || !ctx->cf_mr_send) {
         g_critical ("Failed to register control message memory (Out of memory?)");

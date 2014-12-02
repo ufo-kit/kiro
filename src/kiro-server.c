@@ -180,8 +180,8 @@ connect_client (struct rdma_cm_id *client)
         return -1;
     }
 
-    ctx->cf_mr_recv = kiro_create_rdma_memory (client->pd, sizeof (struct kiro_ctrl_msg), IBV_ACCESS_LOCAL_WRITE);
-    ctx->cf_mr_send = kiro_create_rdma_memory (client->pd, sizeof (struct kiro_ctrl_msg), IBV_ACCESS_LOCAL_WRITE);
+    ctx->cf_mr_recv = kiro_create_rdma_memory (client->pd, sizeof (struct kiro_ctrl_msg), IBV_ACCESS_LOCAL_WRITE, KIRO_ALLOCATE_HOST_MEMORY);
+    ctx->cf_mr_send = kiro_create_rdma_memory (client->pd, sizeof (struct kiro_ctrl_msg), IBV_ACCESS_LOCAL_WRITE, KIRO_ALLOCATE_HOST_MEMORY);
 
     if (!ctx->cf_mr_recv || !ctx->cf_mr_send) {
         g_critical ("Failed to register control message memory");
