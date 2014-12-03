@@ -36,11 +36,15 @@ struct kiro_connection_context {
 
     struct ibv_mr           peer_mr;                // RDMA Memory Region Information of the peer
 
+    void                    *container;             // Make the connection aware of its container (if any)
+
     enum {
         KIRO_IDLE,
         KIRO_MRI_REQUESTED,                         // Memory Region Information Requested
         KIRO_RDMA_ESTABLISHED,                      // MRI Exchange complete. RDMA is ready
-        KIRO_RDMA_ACTIVE                            // RDMA Operation is being performed
+        KIRO_RDMA_ACTIVE,                           // RDMA Operation is being performed
+        KIRO_PING,                                  // PING Message
+        KIRO_PONG                                   // PONG Message (PING reply)
     } rdma_state;
 
 };

@@ -154,7 +154,8 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
     // Right now, we don't need 'source' and 'condition'
     // Tell the compiler to ignore them by (void)-ing them
     (void) source;
-    (void) condition;
+    //(void) condition;
+    g_debug ("Message condidition: %i", condition);
 
     KiroClientPrivate *priv = (KiroClientPrivate *)data;
     struct ibv_wc wc;
@@ -297,8 +298,8 @@ kiro_client_connect (KiroClient *self, const char *address, const char *port)
     priv->main_loop = g_main_loop_new (NULL, FALSE);
     priv->conn_ec = g_io_channel_unix_new (priv->ec->fd);
     priv->rdma_ec = g_io_channel_unix_new (priv->conn->recv_cq_channel->fd);
-    g_io_add_watch (priv->conn_ec, G_IO_IN | G_IO_PRI | G_IO_ERR | G_IO_HUP, process_cm_event, (gpointer)priv);
-    g_io_add_watch (priv->rdma_ec, G_IO_IN | G_IO_PRI | G_IO_ERR | G_IO_HUP, process_rdma_event, (gpointer)priv);
+    g_io_add_watch (priv->conn_ec, G_IO_IN | G_IO_PRI, process_cm_event, (gpointer)priv);
+    g_io_add_watch (priv->rdma_ec, G_IO_IN | G_IO_PRI, process_rdma_event, (gpointer)priv);
     priv->main_thread = g_thread_new ("KIRO Client main loop", start_client_main_loop, priv->main_loop);
 
     // We gave control to the main_loop (with add_watch) and don't need our ref
