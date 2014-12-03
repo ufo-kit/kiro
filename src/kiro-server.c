@@ -272,7 +272,15 @@ process_cm_event (GIOChannel *source, GIOCondition condition, gpointer data)
             else
                 g_debug ("Got disconnect request from unknown client");
 
+            // Note:
+            // The ProtectionDomain needs to be buffered and freed manually.
+            // Each connecting client is attached with its own pd, which we
+            // create manually. So we also need to clean it up manually.
+            // This needs to be done AFTER the connection is brought down, so we
+            // buffer the pointer to the pd and clean it up afterwards.
+            struct ibv_pd *pd = ev->id->pd;
             kiro_destroy_connection (& (ev->id));
+            g_free (pd);
             g_debug ("Connection closed successfully. %u connected clients remaining", g_list_length (priv->clients));
         }
 
@@ -333,8 +341,10 @@ kiro_server_start (KiroServer *self, const char *address, const char *port, void
 
     if (rdma_create_ep (& (priv->base), res_addrinfo, NULL, &qp_attr)) {
         g_critical ("Endpoint creation failed: %s", strerror (errno));
+        g_free (res_addrinfo);
         return -1;
     }
+    g_free (res_addrinfo); // No longer needed
 
     g_debug ("Endpoint created");
     char *addr_local = NULL;
@@ -395,7 +405,15 @@ disconnect_client (gpointer data, gpointer user_data)
         struct rdma_cm_id *id = (struct rdma_cm_id *)data;
         struct kiro_connection_context *ctx = (struct kiro_connection_context *) (id->context);
         g_debug ("Disconnecting client: %u", ctx->identifier);
-        rdma_disconnect ((struct rdma_cm_id *) data);
+        // Note:
+        // The ProtectionDomain needs to be buffered and freed manually.
+        // Each connecting client is attached with its own pd, which we
+        // create manually. So we also need to clean it up manually.
+        // This needs to be done AFTER the connection is brought down, so we
+        // buffer the pointer to the pd and clean it up afterwards.
+        struct ibv_pd *pd = id->pd;
+        kiro_destroy_connection (&id);
+        g_free (pd);
     }
 }
 
