@@ -57,7 +57,7 @@ struct _KiroClientPrivate {
     gboolean                    close_signal; // Flag used to signal event listening to stop for connection tear-down
     GMainLoop                   *main_loop;   // Main loop of the server for event polling and handling
     GIOChannel                  *conn_ec;     // GLib IO Channel encapsulation for the connection manager event channel
-    GIOChannel                  *rdma_ec;     // GLib IO Channel encapsulation for the connection manager event channel
+    GIOChannel                  *rdma_ec;     // GLib IO Channel encapsulation for the communication event channel
     GThread                     *main_thread; // Main KIRO client thread
 };
 
@@ -90,7 +90,6 @@ kiro_client_init (KiroClient *self)
 {
     KiroClientPrivate *priv = KIRO_CLIENT_GET_PRIVATE (self);
     memset (priv, 0, sizeof (&priv));
-
     //Hack to make the 'unused function' from the kiro-rdma include go away...
     kiro_attach_qp (NULL);
 }
@@ -164,7 +163,7 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
         g_critical ("Failure waiting for POST from server: %s", strerror (errno));
         return FALSE; 
     }
-   
+
     struct kiro_connection_context *ctx = (struct kiro_connection_context *)priv->conn->context;
     guint type = ((struct kiro_ctrl_msg *)ctx->cf_mr_recv->mem)->msg_type;
     g_debug ("Received a message from the Server of type: %u", type);
@@ -269,9 +268,7 @@ kiro_client_connect (KiroClient *self, const char *address, const char *port)
 
     if (!ctx->cf_mr_recv || !ctx->cf_mr_send) {
         g_critical ("Failed to register control message memory (Out of memory?)");
-        kiro_destroy_connection_context (&ctx);
-        rdma_destroy_ep (priv->conn);
-        return -1;
+        goto fail;
     }
 
     ctx->cf_mr_recv->size = ctx->cf_mr_send->size = sizeof (struct kiro_ctrl_msg);
@@ -280,20 +277,23 @@ kiro_client_connect (KiroClient *self, const char *address, const char *port)
     //Post an preemtive receive for the servers welcome message
     if (rdma_post_recv (priv->conn, priv->conn, ctx->cf_mr_recv->mem, ctx->cf_mr_recv->size, ctx->cf_mr_recv->mr)) {
         g_critical ("Posting preemtive receive for connection failed: %s", strerror (errno));
-        kiro_destroy_connection_context (&ctx);
-        rdma_destroy_ep (priv->conn);
-        return -1;
+        goto fail;
     }
 
     if (rdma_connect (priv->conn, NULL)) {
         g_critical ("Failed to establish connection to the server: %s", strerror (errno));
-        kiro_destroy_connection_context (&ctx);
-        rdma_destroy_ep (priv->conn);
-        return -1;
+        goto fail;
     }
 
-    priv->ec = priv->conn->channel; //For easy access
+    g_message ("Connection to server established. Waiting for response.");
+    if (!process_rdma_event (NULL, 0, (gpointer)priv)) {
+        g_critical ("No RDMA access information received from the server. Failed to connect.");
+        goto fail;
+    }
 
+    g_message ("Connected to %s:%s", address, port);
+
+    priv->ec = priv->conn->channel; //For easy access
     priv->main_loop = g_main_loop_new (NULL, FALSE);
     priv->conn_ec = g_io_channel_unix_new (priv->ec->fd);
     priv->rdma_ec = g_io_channel_unix_new (priv->conn->recv_cq_channel->fd);
@@ -306,9 +306,13 @@ kiro_client_connect (KiroClient *self, const char *address, const char *port)
     g_io_channel_unref (priv->conn_ec);
     g_io_channel_unref (priv->rdma_ec);
 
-    g_message ("Connection to server established");
-    g_message ("Connected to %s:%s", address, port);
     return 0;
+
+fail:
+    kiro_destroy_connection_context (&ctx);
+    rdma_destroy_ep (priv->conn);
+    priv->conn = NULL;
+    return -1;
 }
 
 
