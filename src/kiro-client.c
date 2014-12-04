@@ -197,6 +197,11 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
         return FALSE;
     }
 
+    // make sure the next incoming work completion causes an event on the
+    // receive completion channel. We will poll() the channels file descriptor
+    // for this in the kiro client main loop.
+    ibv_req_notify_cq (priv->conn->recv_cq, 0);
+
     return TRUE;
 }
 
@@ -249,11 +254,6 @@ kiro_client_connect (KiroClient *self, const char *address, const char *port)
         g_critical ("Endpoint creation failed: %s", strerror (errno));
         return -1;
     }
-    // make sure the receive queue pushes an event onto its completion channel
-    // This is needed in order to see any events on the recv_cq on its
-    // respective completion_channel file descriptor. We will use this
-    // mechanismn in our main loop to poll for those events.
-    ibv_req_notify_cq (priv->conn->recv_cq, 0);
 
     g_debug ("Route to server resolved");
     struct kiro_connection_context *ctx = (struct kiro_connection_context *)g_try_malloc (sizeof (struct kiro_connection_context));
