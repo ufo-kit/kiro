@@ -233,10 +233,15 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
     struct kiro_client_connection *cc = (struct kiro_client_connection *)data;
     struct ibv_wc wc;
 
-    if (rdma_get_recv_comp (cc->conn, &wc) < 0) {
+    if (ibv_poll_cq (cc->conn->recv_cq, 1, &wc) < 0) {
         g_critical ("Failure getting receive completion event from the queue: %s", strerror (errno));
         return FALSE;
     }
+    void *cq_ctx;
+    struct ibv_cq *cq;
+    int err = ibv_get_cq_event (cc->conn->recv_cq_channel, &cq, &cq_ctx);
+    if (!err)
+        ibv_ack_cq_events (cq, 1);
 
     struct kiro_connection_context *ctx = (struct kiro_connection_context *)cc->conn->context;
     guint type = ((struct kiro_ctrl_msg *)ctx->cf_mr_recv->mem)->msg_type;
@@ -253,6 +258,7 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
         return FALSE;
     }
 
+    ibv_req_notify_cq (cc->conn->recv_cq, 0); // Make the respective Queue push events onto the channel
     return TRUE;
 }
 
@@ -306,6 +312,8 @@ process_cm_event (GIOChannel *source, GIOCondition condition, gpointer data)
                 if (welcome_client (ev->id, priv->mem, priv->mem_size))
                     goto fail;
 
+                ibv_req_notify_cq (ev->id->recv_cq, 0); // Make the respective Queue push events onto the channel
+
                 // Connection set-up successfully! (Server)
                 // ctx was created by 'welcome_client'
                 struct kiro_connection_context *ctx = (struct kiro_connection_context *) (ev->id->context);
@@ -318,7 +326,6 @@ process_cm_event (GIOChannel *source, GIOCondition condition, gpointer data)
                 cc->id = ctx->identifier;
                 cc->conn = ev->id;
                 cc->rcv_ec = g_io_channel_unix_new (ev->id->recv_cq_channel->fd);
-                ibv_req_notify_cq (ev->id->recv_cq, 0); // Make the respective Queue push events onto the channel
                 cc->source_id = g_io_add_watch (cc->rcv_ec, G_IO_IN | G_IO_PRI, process_rdma_event, (gpointer)cc);
                 g_io_channel_unref (cc->rcv_ec); // main_loop now holds a reference. We don't need ours any more
 
