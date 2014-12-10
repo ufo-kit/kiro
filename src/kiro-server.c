@@ -247,18 +247,35 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
     guint type = ((struct kiro_ctrl_msg *)ctx->cf_mr_recv->mem)->msg_type;
     g_debug ("Received a message from Client %u of type %u", cc->id, type);
 
+    if (type == KIRO_PING) {
+        struct kiro_ctrl_msg *msg = (struct kiro_ctrl_msg *) (ctx->cf_mr_send->mem);
+        msg->msg_type = KIRO_PONG;
+
+        if (rdma_post_send (cc->conn, cc->conn, ctx->cf_mr_send->mem, ctx->cf_mr_send->size, ctx->cf_mr_send->mr, IBV_SEND_SIGNALED)) {
+            g_warning ("Failure while trying to post PONG send: %s", strerror (errno));
+            goto done;
+        }
+
+        if (rdma_get_send_comp (cc->conn, &wc) < 0) {
+            g_warning ("An error occured while sending PONG: %s", strerror (errno));
+        }
+    }
+
+done:
     //Post a generic receive in order to stay responsive to any messages from
     //the client
     if (rdma_post_recv (cc->conn, cc->conn, ctx->cf_mr_recv->mem, ctx->cf_mr_recv->size, ctx->cf_mr_recv->mr)) {
         //TODO: Connection teardown in an event handler routine? Not a good
         //idea...
-        g_critical ("Posting generic receive for connection failed: %s", strerror (errno));
+        g_critical ("Posting generic receive for event handling failed: %s", strerror (errno));
         kiro_destroy_connection_context (&ctx);
         rdma_destroy_ep (cc->conn);
         return FALSE;
     }
 
     ibv_req_notify_cq (cc->conn->recv_cq, 0); // Make the respective Queue push events onto the channel
+
+    g_debug ("Finished RDMA event handling");
     return TRUE;
 }
 

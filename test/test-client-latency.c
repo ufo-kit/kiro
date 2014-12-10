@@ -6,7 +6,7 @@
 #include <assert.h>
 
 
-int 
+int
 main ( int argc, char *argv[] )
 {
     if (argc < 3) {
@@ -15,38 +15,30 @@ main ( int argc, char *argv[] )
     }
 
     KiroClient *client = kiro_client_new ();
-    KiroTrb *trb = kiro_trb_new ();
 
     if (-1 == kiro_client_connect (client, argv[1], argv[2])) {
         kiro_client_free (client);
         return -1;
     }
 
-    kiro_client_sync (client);
-    kiro_trb_adopt (trb, kiro_client_get_memory (client));
+    int iterations = 10000;
 
-    GTimer *timer = g_timer_new ();
-while (1) { 
-    g_timer_reset (timer);
+while (1) {
     int i = 0;
-    while(i < 50000) {
-        kiro_client_sync (client);
+    float ping_us = 0;
+    int fail_count = 0;
+    while(i < iterations) {
+        float tmp = kiro_client_ping_server (client);
+        if (tmp < 0)
+            fail_count++;
+        else
+            ping_us += tmp;
         i++;
     }
 
-    double elapsed = g_timer_elapsed (timer, NULL);
-    printf ("Average Latency: %fus\n", (elapsed/50000.)*1000*1000);
+    printf ("Average Latency: %fus\n", ping_us/(float)(iterations - fail_count));
 }
-    g_timer_stop (timer);
     kiro_client_free (client);
-    kiro_trb_free (trb);
     return 0;
 }
-
-
-
-
-
-
-
 
