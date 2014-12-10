@@ -160,6 +160,19 @@ void        kiro_client_disconnect             (KiroClient *client);
 int         kiro_client_sync                (KiroClient *client);
 
 /**
+ * kiro_client_ping_server - Sends a PING to the server
+ * @client: (transfer none): The #KiroServer to send the PING from
+ * Returns:
+ *   A #guint telling the time (in microseconds) how long it took for the
+ *   connected #KiroServer to reply
+ * Description:
+ *   Sends a PING package to the connected #KiroServer and waits for a PONG
+ *   package from that server. The time between sending the PING and receiving
+ *   the PONG (in microseconds) is measured and returned by this function.
+ */
+gint        kiro_client_ping_server         (KiroClient *client);
+
+/**
  * kiro_client_get_memory - Return a pointer to the current client memory
  * @client: (transfer none): The #KiroClient to get the memory from
  * Returns: (transfer none):

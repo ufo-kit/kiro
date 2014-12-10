@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/time.h>
 #ifndef __KIRO_RDMA_H__
 #define __KIRO_RDMA_H__
 
@@ -36,6 +37,8 @@ struct kiro_connection_context {
 
     struct ibv_mr           peer_mr;                // RDMA Memory Region Information of the peer
 
+    void                    *container;             // Make the connection aware of its container (if any)
+
     enum {
         KIRO_IDLE,
         KIRO_MRI_REQUESTED,                         // Memory Region Information Requested
@@ -51,11 +54,12 @@ struct kiro_ctrl_msg {
     enum {
         KIRO_REQ_RDMA,                              // Requesting RDMA Access to/from the peer
         KIRO_ACK_RDMA,                              // acknowledge RDMA Request and provide Memory Region Information
-        KIRO_REJ_RDMA                               // RDMA Request rejected :(  (peer_mri will be invalid)
+        KIRO_REJ_RDMA,                              // RDMA Request rejected :(  (peer_mri will be invalid)
+        KIRO_PING,                                  // PING Message
+        KIRO_PONG                                   // PONG Message (PING reply)
     } msg_type;
 
     struct ibv_mr peer_mri;
-
 };
 
 
@@ -85,8 +89,8 @@ kiro_attach_qp (struct rdma_cm_id *id)
     qp_attr.send_cq = id->send_cq;
     qp_attr.recv_cq = id->recv_cq;
     qp_attr.qp_type = IBV_QPT_RC;
-    qp_attr.cap.max_send_wr = 1;
-    qp_attr.cap.max_recv_wr = 1;
+    qp_attr.cap.max_send_wr = 10;
+    qp_attr.cap.max_recv_wr = 10;
     qp_attr.cap.max_send_sge = 1;
     qp_attr.cap.max_recv_sge = 1;
     return rdma_create_qp (id, id->pd, &qp_attr);
