@@ -371,6 +371,7 @@ process_cm_event (GIOChannel *source, GIOCondition condition, gpointer data)
                 g_source_remove (cc->source_id); // this also unrefs the GIOChannel of the source. Nice.
                 priv->clients = g_list_delete_link (priv->clients, client);
                 g_free (cc);
+                ctx->container = NULL;
             }
             else
                 g_debug ("Got disconnect request from unknown client");
