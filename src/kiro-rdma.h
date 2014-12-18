@@ -56,7 +56,8 @@ struct kiro_ctrl_msg {
         KIRO_ACK_RDMA,                              // acknowledge RDMA Request and provide Memory Region Information
         KIRO_REJ_RDMA,                              // RDMA Request rejected :(  (peer_mri will be invalid)
         KIRO_PING,                                  // PING Message
-        KIRO_PONG                                   // PONG Message (PING reply)
+        KIRO_PONG,                                  // PONG Message (PING reply)
+        KIRO_REALLOC                                // Used by the server to notify the client about a new peer_mri
     } msg_type;
 
     struct ibv_mr peer_mri;

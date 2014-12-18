@@ -67,12 +67,22 @@ struct _KiroServerPrivate {
 G_DEFINE_TYPE (KiroServer, kiro_server, G_TYPE_OBJECT);
 
 
+// List of clients that were asked to realloc their memory
+GList *realloc_clients;
+
+// Temporary lock for connecting clients
+G_LOCK_DEFINE (connection_handling);
+
+// Used to prevent raceconditions during realloc timeout
+G_LOCK_DEFINE (realloc_timeout);
+
 struct kiro_client_connection {
 
     guint                       id;              // Client identification (Easy access)
     GIOChannel                  *rcv_ec;         // GLib IO Channel encapsulation for receive completions for the client
     guint                       source_id;       // ID of the source created by g_io_add_watch, needed to remove it again
     struct rdma_cm_id           *conn;           // Connection Manager ID of the client
+    struct kiro_rdma_mem        *backup_mri;     // Backup MRI for reallocation
 };
 
 
@@ -177,7 +187,7 @@ error:
 
 
 static int
-welcome_client (struct rdma_cm_id *client, void *mem, size_t mem_size)
+grant_client_access (struct rdma_cm_id *client, void *mem, size_t mem_size, guint type)
 {
     struct kiro_connection_context *ctx = (struct kiro_connection_context *) (client->context);
     ctx->rdma_mr = (struct kiro_rdma_mem *)g_try_malloc0 (sizeof (struct kiro_rdma_mem));
@@ -199,7 +209,7 @@ welcome_client (struct rdma_cm_id *client, void *mem, size_t mem_size)
 
     struct kiro_ctrl_msg *msg = (struct kiro_ctrl_msg *) (ctx->cf_mr_send->mem);
 
-    msg->msg_type = KIRO_ACK_RDMA;
+    msg->msg_type = type;
 
     msg->peer_mri = * (ctx->rdma_mr->mr);
 
@@ -289,17 +299,22 @@ process_cm_event (GIOChannel *source, GIOCondition condition, gpointer data)
     (void) source;
     (void) condition;
 
+    if (!G_TRYLOCK (connection_handling)) {
+        // Unsafe to handle connection management right now.
+        // Wait for next dispatch.
+        return TRUE;
+    }
+
     KiroServerPrivate *priv = (KiroServerPrivate *)data;
     struct rdma_cm_event *active_event;
 
     if (0 <= rdma_get_cm_event (priv->ec, &active_event)) {
-        //Disable cancellation to prevent undefined states during shutdown
         struct rdma_cm_event *ev = g_try_malloc (sizeof (*active_event));
 
         if (!ev) {
             g_critical ("Unable to allocate memory for Event handling!");
             rdma_ack_cm_event (active_event);
-            return FALSE;
+            goto exit;
         }
 
         memcpy (ev, active_event, sizeof (*active_event));
@@ -311,7 +326,7 @@ process_cm_event (GIOChannel *source, GIOCondition condition, gpointer data)
                 //Don't connect this client any more.
                 //Sorry mate!
                 rdma_reject (ev->id, NULL, 0);
-                return TRUE;
+                goto exit;
             }
 
             do {
@@ -327,7 +342,7 @@ process_cm_event (GIOChannel *source, GIOCondition condition, gpointer data)
                     goto fail;
 
                 // Post a welcoming "Receive" for handshaking
-                if (welcome_client (ev->id, priv->mem, priv->mem_size))
+                if (grant_client_access (ev->id, priv->mem, priv->mem_size, KIRO_ACK_RDMA))
                     goto fail;
 
                 ibv_req_notify_cq (ev->id->recv_cq, 0); // Make the respective Queue push events onto the channel
@@ -354,6 +369,8 @@ process_cm_event (GIOChannel *source, GIOCondition condition, gpointer data)
 
                 fail:
                     g_warning ("Failed to accept client connection: %s", strerror (errno));
+                    if (errno == EINVAL)
+                        g_message ("This might happen if the client pulls back the connection request before the server can handle it.");
 
             } while(0);
         }
@@ -361,7 +378,7 @@ process_cm_event (GIOChannel *source, GIOCondition condition, gpointer data)
             struct kiro_connection_context *ctx = (struct kiro_connection_context *) (ev->id->context);
             if (!ctx->container) {
                 g_debug ("Got disconnect request from unknown client");
-                return FALSE;
+                goto exit;
             }
 
             GList *client = g_list_find (priv->clients, (gconstpointer) ctx->container);
@@ -390,8 +407,11 @@ process_cm_event (GIOChannel *source, GIOCondition condition, gpointer data)
             g_debug ("Connection closed successfully. %u connected clients remaining", g_list_length (priv->clients));
         }
 
+exit:
         g_free (ev);
     }
+
+    G_UNLOCK (connection_handling);
     return TRUE;
 }
 
@@ -503,7 +523,7 @@ kiro_server_start (KiroServer *self, const char *address, const char *port, void
 }
 
 
-static void
+void
 disconnect_client (gpointer data, gpointer user_data)
 {
     (void)user_data;
@@ -526,6 +546,127 @@ disconnect_client (gpointer data, gpointer user_data)
         g_free (cc);
         g_free (pd);
     }
+}
+
+
+/*
+ * NOTE:
+ * When sending the reconnection request to the clients, we try to copy all the
+ * clients from the current pirv->clients list to the new realloc_clients list.
+ * We will then remove eache ACKed client from the _OLD_ list, and will use that
+ * list as well to determine clients that have not responded in time.
+ * Afterwards, we will swap the old and the new list pointers to restore the
+ * correct list naming.
+ *
+ * This is a trick to circumvent problems with clients that, for whatever
+ * reason, can not be copied to the 'new' list. If that happens, we would not
+ * even recognize that a client was not informed, because it never appears in
+ * the new list to begin with, and the client would therefore survive the
+ * timeout for reallocation. That clients peer_mri would then never be unpinned
+ * (unless the server stops or the client disconnects), causing MASSIVE memory
+ * leakage. Also, the client would continue to read stale data in the best case,
+ * or newly allocated garbage in the worst case.
+ *
+ * Since all currently connected clients are guaranteed to be stored in the old
+ * list, using that one to detect failed ACKs makes much more sense, since
+ * clients that failed to be informed of reallocation would simply never send an
+ * ACK, stay on the list, and then securely be disconnected after the timeout.
+ **/
+
+void
+request_client_realloc (gpointer data, gpointer user_data) {
+
+    if (!data || !user_data) {
+        g_critical ("Either client or server pointer was lost during client reconnect!");
+        // The client will remain in the old list, never receive the
+        // reallocation request, therefore never send an ACK and therefore will
+        // be forcefully disconnected once the timeout happens. See Note above.
+        return;
+    }
+
+    realloc_clients = g_list_append (realloc_clients, data);
+
+    struct kiro_client_connection *cc = (struct kiro_client_connection *)data;
+    struct kiro_connection_context *ctx = (struct kiro_connection_context *)cc->conn->context;
+
+    // user_data is used to pass the information about the new RDMA memory to
+    // this function. It is encapsulated in a kiro_rdma_mem struct.
+    struct kiro_rdma_mem *new_rdma_mem = (struct kiro_rdma_mem *)user_data;
+
+    cc->backup_mri = ctx->rdma_mr;
+    ctx->rdma_mr = NULL;
+    g_debug ("Requesting REALLOC for client %i", cc->id);
+    if (grant_client_access (cc->conn, new_rdma_mem->mem, new_rdma_mem->size, KIRO_REALLOC)) {
+        ctx->rdma_mr = cc->backup_mri;
+        cc->backup_mri = NULL;
+        g_warning ("Failed to request REALLOC for client %i", cc->id);
+        return;
+    }
+    g_debug ("Client %i REALLOC request sent.", cc->id);
+}
+
+
+volatile gboolean timeout_done = FALSE;
+
+gboolean
+client_realloc_timeout (gpointer data) {
+
+    (void) data;
+    g_debug ("TIMEOUT OCCURED");
+    timeout_done = TRUE;
+    return TRUE;
+}
+
+
+void
+kiro_server_realloc (KiroServer *self, void *mem, size_t size) {
+
+    if (!self)
+        return;
+
+    struct kiro_rdma_mem rdma_mem;
+    rdma_mem.mem = mem;
+    rdma_mem.size = size;
+
+    KiroServerPrivate *priv = KIRO_SERVER_GET_PRIVATE (self);
+
+    G_LOCK (connection_handling);
+    g_list_foreach (priv->clients, request_client_realloc, &rdma_mem);
+
+    guint timeout = g_timeout_add_seconds (2, client_realloc_timeout, NULL);
+
+    timeout_done = FALSE;
+    while (!timeout_done) {};
+
+    // Remove the timeout
+    GSource *timeout_source = g_main_context_find_source_by_id (NULL, timeout);
+    if (timeout_source) {
+        g_source_destroy (timeout_source);
+    }
+
+    G_LOCK (realloc_timeout);
+    GList *current = g_list_first (priv->clients);
+    while (current) {
+        GList *client = g_list_find (realloc_clients, current->data);
+        if (client) {
+            struct kiro_client_connection *cc = (struct kiro_client_connection *)client->data;
+            g_debug ("Client %i did not ACK the REALLOC request in time.", cc->id);
+            disconnect_client (client->data, NULL);
+            realloc_clients = g_list_delete_link (realloc_clients, client);
+        }
+        current = g_list_next (current);
+    }
+    g_list_free (priv->clients);
+    priv->clients = realloc_clients;
+    realloc_clients = NULL;
+    G_UNLOCK (realloc_timeout);
+
+    // CHANGE INTERNAL POINTERS FOR MEM!!
+    // priv->mem = mem, etc..
+
+    G_UNLOCK (connection_handling);
+
+
 }
 
 
