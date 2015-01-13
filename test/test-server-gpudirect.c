@@ -51,10 +51,22 @@ int
 main (void)
 {
     KiroServer *server = kiro_server_new ();
-    int *mem = malloc (sizeof(int));
-    *mem = 42;
 
-    if (0 > kiro_server_start (server, NULL, "60010", mem, sizeof(int))) {
+    // Allocate 1MB of random data.
+    int mem_size = 1024 * 256 * sizeof (int);
+    int *mem = malloc (mem_size);
+    int *ptr = mem;
+    srand (time (NULL));
+    for (int i = 0; i < 1024 * 256; i++) {
+        *ptr = rand ();
+        // Show the first 20 integers for inspection.
+        if (i < 20) {
+            g_info ("%d  ", *ptr);
+        }
+        ptr += 1;
+    }
+
+    if (0 > kiro_server_start (server, NULL, "60010", mem, mem_size )) {
         g_critical ("Failed to start server properly");
         goto done;
     }

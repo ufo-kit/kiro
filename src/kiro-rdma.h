@@ -119,8 +119,6 @@ kiro_register_rdma_memory (struct ibv_pd *pd, struct ibv_mr **mr, void *mem, siz
         void *mem_handle = mem;
         int error;
 
-        cudaSetDevice(0);
-
         if (!mem_handle) {
             error = cudaMalloc (&mem_handle, mem_size);
             printf ("DEBUG: Allocating with CUDA.\n");

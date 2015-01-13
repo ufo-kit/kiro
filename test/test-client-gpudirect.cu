@@ -32,9 +32,10 @@
 #include <string.h>
 #include "kiro-client.h"
 #include <assert.h>
+#include <glib.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
-
+#include <unistd.h>
 
 /**
  * cuda_example
@@ -45,7 +46,18 @@
 __global__
 void cuda_example (void *memory_pointer)
 {
-    *(int*) memory_pointer *= 2;
+    int *mem_pointer = (int*) memory_pointer;
+
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+
+    mem_pointer[index/4] *= 2;
+
+    /*
+    for (int i = 0; i < 10; i++) {
+        *mem_pointer[thread] *= 2;
+        mem_pointer += 1;
+    }
+    */
 }
 
 
@@ -64,31 +76,168 @@ int
 main ( int argc, char *argv[])
 {
     if (argc < 3) {
-        printf ("Not enough arguments. Usage: kiro-test-gpudirect <address> <port>\n");
+        g_message ("Not enough arguments. Usage: kiro-test-gpudirect <address> <port>\n");
         return -1;
     }
 
-    KiroClient *client = kiro_client_new ();
+    GTimer *timer = g_timer_new ();
 
-    if (-1 == kiro_client_connect (client, argv[1], argv[2])) {
-        kiro_client_free (client);
+    const int iterations = 10000;
+
+    float t_host_infiniband = 0;
+    float t_host_hosttodevice = 0;
+    float t_host_algorithm = 0;
+    float t_host_devicetohost = 0;
+
+    float t_gpu_infiniband = 0;
+    float t_gpu_algorithm = 0;
+    float t_gpu_devicetohost = 0;
+
+    /*
+    *   GPU MEMORY
+    */ 
+
+    // Switch on GPU memory allocation and gpudirect data path.
+    gpudirect = 1;
+
+    // Create new kiro client.
+    KiroClient *client_gpu = kiro_client_new ();
+
+    // Connect to server and setup memory.
+    if (-1 == kiro_client_connect (client_gpu, argv[1], argv[2])) {
+        kiro_client_free (client_gpu);
         return -1;
     }
 
+    // Select first graphics card.
     cudaSetDevice (0);
-    kiro_client_sync (client);
+    
 
-    cuda_example <<<1, 1>>> (kiro_client_get_memory (client));
+    // Transfer data "iterations" times to get average throughput.
+    void *host_mem = malloc (kiro_client_get_memory_size (client_gpu));
+    for (int i = 0; i < iterations; i++) {
+        // Receive data from server into gpu memory via gpudirect.
+        g_timer_reset (timer);
+        kiro_client_sync (client_gpu);
+        cudaDeviceSynchronize();
+        t_gpu_infiniband += g_timer_elapsed (timer, NULL);
+    
+        // Do some simple math on transferred data.
+        cudaDeviceSynchronize();
+        g_timer_reset (timer);
+        cuda_example <<<kiro_client_get_memory_size (client_gpu) / 1024, 1024>>> (kiro_client_get_memory (client_gpu));
+        cudaDeviceSynchronize();
+        t_gpu_algorithm += g_timer_elapsed (timer, NULL);
 
-    void *mem = malloc (kiro_client_get_memory_size (client));
-    int error = cudaMemcpy (mem, kiro_client_get_memory (client), kiro_client_get_memory_size (client), cudaMemcpyDeviceToHost);
+        // Copy received data into main memory, to inspect it.
+        g_timer_reset (timer);
+        cudaError_t error = cudaMemcpy (host_mem, kiro_client_get_memory (client_gpu), \
+            kiro_client_get_memory_size (client_gpu), cudaMemcpyDeviceToHost);
+        cudaDeviceSynchronize();
+        t_gpu_devicetohost += g_timer_elapsed (timer, NULL);
 
-    if (error != 0) {
-        printf ("Cuda error: %d\n", error);
+        // Check if copy was successfull.
+        if (error != 0) {
+            g_message ("Cuda error: %s \n", cudaGetErrorString(error));
+            return -1;
+        }
     }
 
-    printf ("The transported integer times two is %d.\n", *(int*) mem);
 
-    kiro_client_free (client);
+    // Print the transported integers for inspection.
+    for (int i = 0; i < 10; i++) {
+        g_message ("%d", *(((int*) host_mem) + i));
+    }
 
+    // Release used memory.
+    kiro_client_free (client_gpu);
+    free (host_mem);
+
+
+    /*
+    *   HOST MEMORY
+    */
+
+    // Switch on GPU memory allocation and gpudirect data path.
+    gpudirect = 0;
+
+    // Create new kiro client.
+    KiroClient *client_host = kiro_client_new ();
+
+    // Connect to server and setup memory.
+    if (-1 == kiro_client_connect (client_host, argv[1], argv[2])) {
+        kiro_client_free (client_host);
+        return -1;
+    }
+    
+    // Transfer data 1000 times to get average througput.
+    void *gpu_mem;
+    void *host_mem_2 = malloc (kiro_client_get_memory_size (client_host));
+    for (int i = 0; i < iterations; i++) {
+        // Receive data from server into host memory.
+        g_timer_reset (timer);
+        kiro_client_sync (client_host);
+        cudaDeviceSynchronize();
+        t_host_infiniband += g_timer_elapsed (timer, NULL);
+        
+        // Copy memory from host to gpu memory.
+        cudaError_t error = cudaMalloc (&gpu_mem, kiro_client_get_memory_size (client_host));
+        g_timer_reset (timer);
+        error = cudaMemcpy (gpu_mem, kiro_client_get_memory (client_host), \
+            kiro_client_get_memory_size (client_host), cudaMemcpyHostToDevice);
+        cudaDeviceSynchronize();
+        t_host_hosttodevice += g_timer_elapsed (timer, NULL);
+
+        // Check if copy was successfull.
+        if (error != 0) {
+            g_message ("Cuda error: %s \n", cudaGetErrorString(error));
+            return -1;
+        }
+        // Do some simple math on transferred data.
+        g_timer_reset (timer);
+        cuda_example <<<kiro_client_get_memory_size (client_host) / 1024, 1024>>> (gpu_mem);
+        cudaDeviceSynchronize();
+        t_host_algorithm += g_timer_elapsed (timer, NULL);
+
+        // Copy data back from gpu memory to host.
+        g_timer_reset (timer);
+        error = cudaMemcpy (host_mem_2, gpu_mem, \
+            kiro_client_get_memory_size (client_host), cudaMemcpyDeviceToHost);
+        cudaDeviceSynchronize();
+        t_host_devicetohost += g_timer_elapsed (timer, NULL);
+
+        // Check if copy was successfull.
+        if (error != 0) {
+            g_message ("Cuda error: %s\n", cudaGetErrorString(error));
+            return -1;
+        }
+    }
+
+    // Print the transported integers for inspection.
+    for (int i = 0; i < 10; i++) {
+        g_message ("%d", *(((int*) host_mem_2) + i));
+    }
+
+    // Inspect Data.
+    g_message ("t_host_infiniband \t %.2f ms\n", (t_host_infiniband / iterations) * 1000);
+    g_message ("t_gpu_infiniband \t %.2f ms\n", (t_gpu_infiniband / iterations) * 1000);
+    g_message ("+t_host_hosttodevice \t %.2f ms\n", (t_host_hosttodevice / iterations) * 1000);
+    g_message ("t_host_algorithm \t %.2f ms\n", (t_host_algorithm / iterations) * 1000);
+    g_message ("t_gpu_algorithm \t %.2f ms\n", (t_gpu_algorithm / iterations) * 1000);
+    g_message ("t_host_devicetohost \t %.2f ms\n", (t_host_devicetohost / iterations) * 1000);
+    g_message ("t_gpu_devicetohost \t %.2f ms\n", (t_gpu_devicetohost / iterations) * 1000);
+
+    float size_gb = ((float) kiro_client_get_memory_size (client_host) / (1024.0 * 1024.0 * 1024.0)) * iterations;    
+
+    g_message ("[HOST]\t Throughput Infiniband \t\t %.2f Gbyte/s\n", size_gb / t_host_infiniband);
+    g_message ("[HOST]\t Throughput Host to Device \t %.2f Gbyte/s\n", size_gb / t_host_hosttodevice);
+    g_message ("[HOST]\t Throughput Device to Host \t %.2f Gbyte/s\n", size_gb / t_host_devicetohost);
+
+    g_message ("[GPU]\t Throughput Infiniband \t\t %.2f Gbyte/s\n", size_gb / t_gpu_infiniband);
+    g_message ("[GPU]\t Throughput Device to Host \t %.2f Gbyte/s\n", size_gb / t_gpu_devicetohost);
+
+    // Release used memory.
+    kiro_client_free (client_host);
+    cudaFree (gpu_mem);
+    free (host_mem_2);
 }

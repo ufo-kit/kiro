@@ -45,6 +45,9 @@ typedef struct _KiroClient           KiroClient;
 typedef struct _KiroClientClass      KiroClientClass;
 typedef struct _KiroClientPrivate    KiroClientPrivate;
 
+// TODO: Quick and dirty global variable. Either break interface of kiro_client_connect or 
+// create new interface gpudirect_enabled.
+int gpudirect;
 
 struct _KiroClient {
 

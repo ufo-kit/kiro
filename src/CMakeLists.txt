@@ -1,7 +1,10 @@
 # If cuda is installed and gpudirect flag is set for cmake then define 
 # GPUDIRECT and add cuda as library for compilation.
-option(GPUDIRECT "GPUDIRECT: Disabled" OFF)
-if(GPUDIRECT)
+find_program(WITH_CUDA nvcc)
+if(WITH_CUDA)
+    option(GPUDIRECT "GPUDIRECT: Disabled" OFF)
+endif()
+if(GPUDIRECT AND WITH_CUDA)
     find_package(CUDA)
     message(STATUS "GPUDIRECT: Enabled")
     add_definitions(-DGPUDIRECT)

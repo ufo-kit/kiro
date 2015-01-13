@@ -212,9 +212,16 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
             ctx->peer_mr = (((struct kiro_ctrl_msg *) (ctx->cf_mr_recv->mem))->peer_mri);
             g_debug ("Expected Memory Size is: %zu", ctx->peer_mr.length);
 #ifdef GPUDIRECT
-            ctx->rdma_mr = kiro_create_rdma_memory (priv->conn->pd, ctx->peer_mr.length, IBV_ACCESS_LOCAL_WRITE, KIRO_ALLOCATE_GPU_MEMORY);
+        if (gpudirect) {
+            ctx->rdma_mr = kiro_create_rdma_memory (priv->conn->pd, ctx->peer_mr.length, \
+                IBV_ACCESS_LOCAL_WRITE, KIRO_ALLOCATE_GPU_MEMORY);
+        } else {
+            ctx->rdma_mr = kiro_create_rdma_memory (priv->conn->pd, ctx->peer_mr.length, \
+                IBV_ACCESS_LOCAL_WRITE, KIRO_ALLOCATE_HOST_MEMORY);
+        }
 #else
-            ctx->rdma_mr = kiro_create_rdma_memory (priv->conn->pd, ctx->peer_mr.length, IBV_ACCESS_LOCAL_WRITE, KIRO_ALLOCATE_HOST_MEMORY);
+            ctx->rdma_mr = kiro_create_rdma_memory (priv->conn->pd, ctx->peer_mr.length, \
+                IBV_ACCESS_LOCAL_WRITE, KIRO_ALLOCATE_HOST_MEMORY);
 #endif
 
             if (!ctx->rdma_mr) {
