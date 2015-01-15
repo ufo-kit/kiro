@@ -64,10 +64,31 @@ struct _KiroClientPrivate {
 
 G_DEFINE_TYPE (KiroClient, kiro_client, G_TYPE_OBJECT);
 
-
 // Temporary storage and lock for PING timing
 G_LOCK_DEFINE (ping_time);
 volatile struct timeval ping_time;
+
+G_LOCK_DEFINE (sync_lock);
+
+static inline gboolean
+send_msg (struct rdma_cm_id *id, struct kiro_rdma_mem *r)
+{
+    gboolean retval = TRUE;
+    G_LOCK (sync_lock);
+    if (rdma_post_send (id, id, r->mem, r->size, r->mr, IBV_SEND_SIGNALED)) {
+        retval = FALSE;
+    }
+    else {
+        struct ibv_wc wc;
+        if (rdma_get_send_comp (id, &wc) < 0) {
+            retval = FALSE;
+        }
+        g_debug ("WC Status: %i", wc.status);
+    }
+
+    G_UNLOCK (sync_lock);
+    return retval;
+}
 
 
 KiroClient *
@@ -134,7 +155,6 @@ process_cm_event (GIOChannel *source, GIOCondition condition, gpointer data)
     struct rdma_cm_event *active_event;
 
     if (0 <= rdma_get_cm_event (priv->ec, &active_event)) {
-        //Disable cancellation to prevent undefined states during shutdown
         struct rdma_cm_event *ev = g_try_malloc (sizeof (*active_event));
 
         if (!ev) {
@@ -190,13 +210,13 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
         ctx->rdma_mr = kiro_create_rdma_memory (priv->conn->pd, ctx->peer_mr.length, IBV_ACCESS_LOCAL_WRITE);
 
         if (!ctx->rdma_mr) {
-            //TODO: Connection teardown in an event handler routine? Not a good
+            //FIXME: Connection teardown in an event handler routine? Not a good
             //idea...
             g_critical ("Failed to allocate memory for receive buffer (Out of memory?)");
             rdma_disconnect (priv->conn);
             kiro_destroy_connection_context (&ctx);
             rdma_destroy_ep (priv->conn);
-            return FALSE;
+            return TRUE;
         }
     }
     if (type == KIRO_PONG) {
@@ -215,11 +235,41 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
 
         G_UNLOCK (ping_time);
     }
+    if (type == KIRO_REALLOC) {
+        g_debug ("Got reallocation request from server.");
+        struct kiro_ctrl_msg *msg = ((struct kiro_ctrl_msg *)ctx->cf_mr_recv->mem);
+
+        G_LOCK (sync_lock);
+        g_debug ("Rallocating memory...");
+        kiro_destroy_rdma_memory (ctx->rdma_mr);
+        ctx->peer_mr = msg->peer_mri;
+        g_debug ("New size is: %zu", ctx->peer_mr.length);
+        ctx->rdma_mr = kiro_create_rdma_memory (priv->conn->pd, ctx->peer_mr.length, IBV_ACCESS_LOCAL_WRITE);
+        G_UNLOCK (sync_lock);
+
+        if (!ctx->rdma_mr) {
+            //FIXME: Connection teardown in an event handler routine? Not a good
+            //idea...
+            g_critical ("Failed to allocate memory for receive buffer (Out of memory?)");
+            rdma_disconnect (priv->conn);
+            kiro_destroy_connection_context (&ctx);
+            rdma_destroy_ep (priv->conn);
+        }
+
+        msg = ((struct kiro_ctrl_msg *)ctx->cf_mr_send->mem);
+        msg->msg_type = KIRO_ACK_RDMA;
+        if (!send_msg (priv->conn, ctx->cf_mr_send)) {
+            g_warning ("Failure while trying to post SEND for reallocation ACK: %s", strerror (errno));
+        }
+        else {
+            g_debug ("Sent ACK to server");
+        }
+    }
 
     //Post a generic receive in order to stay responsive to any messages from
     //the server
     if (rdma_post_recv (priv->conn, priv->conn, ctx->cf_mr_recv->mem, ctx->cf_mr_recv->size, ctx->cf_mr_recv->mr)) {
-        //TODO: Connection teardown in an event handler routine? Not a good
+        //FIXME: Connection teardown in an event handler routine? Not a good
         //idea...
         g_critical ("Posting generic receive for connection failed: %s", strerror (errno));
         kiro_destroy_connection_context (&ctx);
@@ -363,6 +413,7 @@ kiro_client_sync (KiroClient *self)
 
     struct kiro_connection_context *ctx = (struct kiro_connection_context *)priv->conn->context;
 
+    G_LOCK (sync_lock);
     if (rdma_post_read (priv->conn, priv->conn, ctx->rdma_mr->mem, ctx->peer_mr.length, ctx->rdma_mr->mr, 0, (uint64_t)ctx->peer_mr.addr, ctx->peer_mr.rkey)) {
         g_critical ("Failed to RDMA_READ from server: %s", strerror (errno));
         goto fail;
@@ -377,6 +428,7 @@ kiro_client_sync (KiroClient *self)
 
     switch (wc.status) {
         case IBV_WC_SUCCESS:
+            G_UNLOCK (sync_lock);
             return 0;
         case IBV_WC_RETRY_EXC_ERR:
             g_critical ("Server no longer responding");
@@ -390,6 +442,7 @@ kiro_client_sync (KiroClient *self)
 
 fail:
     kiro_destroy_connection (&(priv->conn));
+    G_UNLOCK (sync_lock);
     return -1;
 }
 
@@ -399,6 +452,7 @@ ping_timeout (gpointer data) {
 
     //Not needed. Void it to prevent 'unused variable' warning
     (void) data;
+    g_debug ("PING timed out");
 
     G_LOCK (ping_time);
 
@@ -444,19 +498,14 @@ kiro_client_ping_server (KiroClient *self)
     struct timeval local_time;
     gettimeofday (&local_time, NULL);
 
-    if (rdma_post_send (priv->conn, priv->conn, ctx->cf_mr_send->mem, ctx->cf_mr_send->size, ctx->cf_mr_send->mr, IBV_SEND_SIGNALED)) {
+    if (!send_msg (priv->conn, ctx->cf_mr_send)) {
         g_warning ("Failure while trying to post SEND for PING: %s", strerror (errno));
         t_usec = -1;
+        G_UNLOCK (ping_time);
         goto end;
     }
+    g_debug ("PING message sent to server.");
     G_UNLOCK (ping_time);
-
-    struct ibv_wc wc;
-    if (rdma_get_send_comp (priv->conn, &wc) < 0) {
-        g_warning ("Failure during PING send: %s", strerror (errno));
-        t_usec = -1;
-        goto end;
-    }
 
     // Set a two-second timeout for the ping
     guint timeout = g_timeout_add_seconds (2, ping_timeout, NULL);

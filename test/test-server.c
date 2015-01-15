@@ -181,6 +181,8 @@ main (void)
         buffer = kiro_trb_dma_push (rb);
         print_current_frame (buffer, frame, 512, 512, rand);
         frame++;
+        if (frame % 1000 == 0)
+            kiro_server_realloc (server, kiro_trb_get_raw_buffer (rb), kiro_trb_get_raw_size (rb));
     }
 
 done:
