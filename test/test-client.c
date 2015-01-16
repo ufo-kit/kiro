@@ -89,8 +89,9 @@ main ( int argc, char *argv[] )
         render (data_sf);
     }
 
-    kiro_client_free (client);
+    kiro_trb_purge (trb, FALSE);
     kiro_trb_free (trb);
+    kiro_client_free (client);
     return 0;
 }
 

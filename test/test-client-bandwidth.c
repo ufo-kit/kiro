@@ -41,8 +41,9 @@ while (1) {
     printf ("Throughput: %.2fGbyte/s\n",((size * 500) / elapsed)/(1024*1024*1024));
 }
     g_timer_stop (timer);
-    kiro_client_free (client);
+    kiro_trb_purge (trb, FALSE);
     kiro_trb_free (trb);
+    kiro_client_free (client);
     return 0;
 }
 
