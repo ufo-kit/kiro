@@ -80,8 +80,7 @@ kiro_client_new (void)
 void
 kiro_client_free (KiroClient *client)
 {
-    if (!client)
-        return;
+    g_return_if_fail (client != NULL);
 
     if (KIRO_IS_CLIENT (client))
         g_object_unref (client);
@@ -93,6 +92,7 @@ kiro_client_free (KiroClient *client)
 static void
 kiro_client_init (KiroClient *self)
 {
+    g_return_if_fail (self != NULL);
     KiroClientPrivate *priv = KIRO_CLIENT_GET_PRIVATE (self);
     memset (priv, 0, sizeof (&priv));
     //Hack to make the 'unused function' from the kiro-rdma include go away...
@@ -105,6 +105,7 @@ kiro_client_init (KiroClient *self)
 static void
 kiro_client_finalize (GObject *object)
 {
+    g_return_if_fail (object != NULL);
     if (KIRO_IS_CLIENT (object))
         kiro_client_disconnect ((KiroClient *)object);
     G_OBJECT_CLASS (kiro_client_parent_class)->finalize (object);
@@ -114,6 +115,7 @@ kiro_client_finalize (GObject *object)
 static void
 kiro_client_class_init (KiroClientClass *klass)
 {
+    g_return_if_fail (klass != NULL);
     GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
     gobject_class->finalize = kiro_client_finalize;
     g_type_class_add_private (klass, sizeof (KiroClientPrivate));
@@ -246,6 +248,7 @@ start_client_main_loop (gpointer data)
 int
 kiro_client_connect (KiroClient *self, const char *address, const char *port)
 {
+    g_return_val_if_fail (self != NULL, -1);
     KiroClientPrivate *priv = KIRO_CLIENT_GET_PRIVATE (self);
 
     if (priv->conn) {
@@ -285,7 +288,7 @@ kiro_client_connect (KiroClient *self, const char *address, const char *port)
     }
 
     g_debug ("Route to server resolved");
-    struct kiro_connection_context *ctx = (struct kiro_connection_context *)g_try_malloc (sizeof (struct kiro_connection_context));
+    struct kiro_connection_context *ctx = (struct kiro_connection_context *)g_try_malloc0 (sizeof (struct kiro_connection_context));
 
     if (!ctx) {
         g_critical ("Failed to create connection context (Out of memory?)");
@@ -350,6 +353,7 @@ fail:
 int
 kiro_client_sync (KiroClient *self)
 {
+    g_return_val_if_fail (self != NULL, -1);
     KiroClientPrivate *priv = KIRO_CLIENT_GET_PRIVATE (self);
 
     if (!priv->conn) {
@@ -418,6 +422,8 @@ done:
 gint
 kiro_client_ping_server (KiroClient *self)
 {
+    g_return_val_if_fail (self != NULL, -1);
+
     // Will be returned. -1 for error.
     gint t_usec = 0;
 
@@ -501,6 +507,7 @@ end:
 void *
 kiro_client_get_memory (KiroClient *self)
 {
+    g_return_val_if_fail (self != NULL, NULL);
     KiroClientPrivate *priv = KIRO_CLIENT_GET_PRIVATE (self);
 
     if (!priv->conn)
@@ -518,6 +525,7 @@ kiro_client_get_memory (KiroClient *self)
 size_t
 kiro_client_get_memory_size (KiroClient *self)
 {
+    g_return_val_if_fail (self != NULL, 0);
     KiroClientPrivate *priv = KIRO_CLIENT_GET_PRIVATE (self);
 
     if (!priv->conn)
@@ -535,8 +543,7 @@ kiro_client_get_memory_size (KiroClient *self)
 void
 kiro_client_disconnect (KiroClient *self)
 {
-    if (!self)
-        return;
+    g_return_if_fail (self != NULL);
 
     KiroClientPrivate *priv = KIRO_CLIENT_GET_PRIVATE (self);
 

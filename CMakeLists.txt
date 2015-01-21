@@ -26,8 +26,8 @@ else()
 endif()
 
 find_package(PkgConfig)
-pkg_check_modules(GLIB2 glib-2.0>=2.24 REQUIRED)
-pkg_check_modules(GOBJECT2 gobject-2.0>=2.24 REQUIRED)
+pkg_check_modules(GLIB2 glib-2.0>=2.32 REQUIRED)
+pkg_check_modules(GOBJECT2 gobject-2.0>=2.32 REQUIRED)
 
 include_directories(
   SYSTEM

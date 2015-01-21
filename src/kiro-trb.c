@@ -73,9 +73,7 @@ kiro_trb_new (void)
 void
 kiro_trb_free (KiroTrb *trb)
 {
-    if (!trb)
-        return;
-
+    g_return_if_fail (trb != NULL);
     if (KIRO_IS_TRB (trb))
         g_object_unref (trb);
     else
@@ -86,6 +84,7 @@ kiro_trb_free (KiroTrb *trb)
 static
 void kiro_trb_init (KiroTrb *self)
 {
+    g_return_if_fail (self != NULL);
     KiroTrbPrivate *priv = KIRO_TRB_GET_PRIVATE (self);
     priv->initialized = 0;
 }
@@ -94,6 +93,7 @@ void kiro_trb_init (KiroTrb *self)
 static void
 kiro_trb_finalize (GObject *object)
 {
+    g_return_if_fail (object != NULL);
     KiroTrb *self = KIRO_TRB (object);
     KiroTrbPrivate *priv = KIRO_TRB_GET_PRIVATE (self);
 
@@ -107,6 +107,7 @@ kiro_trb_finalize (GObject *object)
 static void
 kiro_trb_class_init (KiroTrbClass *klass)
 {
+    g_return_if_fail (klass != NULL);
     GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
     gobject_class->finalize = kiro_trb_finalize;
     g_type_class_add_private (klass, sizeof (KiroTrbPrivate));
@@ -135,6 +136,7 @@ write_header (KiroTrbPrivate *priv)
 uint64_t
 kiro_trb_get_element_size (KiroTrb *self)
 {
+    g_return_val_if_fail (self != NULL, 0);
     KiroTrbPrivate *priv = KIRO_TRB_GET_PRIVATE (self);
 
     if (priv->initialized != 1)
@@ -147,6 +149,7 @@ kiro_trb_get_element_size (KiroTrb *self)
 uint64_t
 kiro_trb_get_max_elements (KiroTrb *self)
 {
+    g_return_val_if_fail (self != NULL, 0);
     KiroTrbPrivate *priv = KIRO_TRB_GET_PRIVATE (self);
 
     if (priv->initialized != 1)
@@ -159,6 +162,7 @@ kiro_trb_get_max_elements (KiroTrb *self)
 uint64_t
 kiro_trb_get_raw_size (KiroTrb *self)
 {
+    g_return_val_if_fail (self != NULL, 0);
     KiroTrbPrivate *priv = KIRO_TRB_GET_PRIVATE (self);
 
     if (priv->initialized != 1)
@@ -171,6 +175,7 @@ kiro_trb_get_raw_size (KiroTrb *self)
 void *
 kiro_trb_get_raw_buffer (KiroTrb *self)
 {
+    g_return_val_if_fail (self != NULL, NULL);
     KiroTrbPrivate *priv = KIRO_TRB_GET_PRIVATE (self);
 
     if (priv->initialized != 1)
@@ -184,6 +189,7 @@ kiro_trb_get_raw_buffer (KiroTrb *self)
 void *
 kiro_trb_get_element (KiroTrb *self, uint64_t element)
 {
+    g_return_val_if_fail (self != NULL, NULL);
     KiroTrbPrivate *priv = KIRO_TRB_GET_PRIVATE (self);
 
     if (priv->initialized != 1)
@@ -203,6 +209,7 @@ kiro_trb_get_element (KiroTrb *self, uint64_t element)
 void
 kiro_trb_flush (KiroTrb *self)
 {
+    g_return_if_fail (self != NULL);
     KiroTrbPrivate *priv = KIRO_TRB_GET_PRIVATE (self);
     priv->iteration = 0;
     priv->current = priv->frame_top;
@@ -213,6 +220,7 @@ kiro_trb_flush (KiroTrb *self)
 void
 kiro_trb_purge (KiroTrb *self, gboolean free_memory)
 {
+    g_return_if_fail (self != NULL);
     KiroTrbPrivate *priv = KIRO_TRB_GET_PRIVATE (self);
     priv->iteration = 0;
     priv->current = NULL;
@@ -232,6 +240,7 @@ kiro_trb_purge (KiroTrb *self, gboolean free_memory)
 int
 kiro_trb_is_setup (KiroTrb *self)
 {
+    g_return_val_if_fail (self != NULL, 0);
     KiroTrbPrivate *priv = KIRO_TRB_GET_PRIVATE (self);
     return priv->initialized;
 }
@@ -240,6 +249,7 @@ kiro_trb_is_setup (KiroTrb *self)
 int
 kiro_trb_reshape (KiroTrb *self, uint64_t element_size, uint64_t element_count)
 {
+    g_return_val_if_fail (self != NULL, -1);
     if (element_size < 1 || element_count < 1)
         return -1;
 
@@ -260,6 +270,7 @@ kiro_trb_reshape (KiroTrb *self, uint64_t element_size, uint64_t element_count)
 int
 kiro_trb_push (KiroTrb *self, void *element_in)
 {
+    g_return_val_if_fail (self != NULL, -1);
     KiroTrbPrivate *priv = KIRO_TRB_GET_PRIVATE (self);
 
     if (priv->initialized != 1)
@@ -284,6 +295,7 @@ kiro_trb_push (KiroTrb *self, void *element_in)
 void *
 kiro_trb_dma_push (KiroTrb *self)
 {
+    g_return_val_if_fail (self != NULL, NULL);
     KiroTrbPrivate *priv = KIRO_TRB_GET_PRIVATE (self);
 
     if (priv->initialized != 1)
@@ -308,6 +320,7 @@ kiro_trb_dma_push (KiroTrb *self)
 void
 kiro_trb_refresh (KiroTrb *self)
 {
+    g_return_if_fail (self != NULL);
     KiroTrbPrivate *priv = KIRO_TRB_GET_PRIVATE (self);
 
     if (priv->initialized != 1)
@@ -327,6 +340,7 @@ kiro_trb_refresh (KiroTrb *self)
 void
 kiro_trb_adopt (KiroTrb *self, void *buff_in)
 {
+    g_return_if_fail (self != NULL);
     if (!buff_in)
         return;
 
@@ -344,6 +358,7 @@ kiro_trb_adopt (KiroTrb *self, void *buff_in)
 int
 kiro_trb_clone (KiroTrb *self, void *buff_in)
 {
+    g_return_val_if_fail (self != NULL, -1);
     KiroTrbPrivate *priv = KIRO_TRB_GET_PRIVATE (self);
     struct KiroTrbInfo *header = (struct KiroTrbInfo *)buff_in;
     void *newmem = g_try_malloc0 (header->buffer_size_bytes);

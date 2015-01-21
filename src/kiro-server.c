@@ -86,9 +86,7 @@ kiro_server_new (void)
 void
 kiro_server_free (KiroServer *server)
 {
-    if (!server)
-        return;
-
+    g_return_if_fail (server != NULL);
     if (KIRO_IS_SERVER (server))
         g_object_unref (server);
     else
@@ -99,6 +97,7 @@ kiro_server_free (KiroServer *server)
 static void
 kiro_server_init (KiroServer *self)
 {
+    g_return_if_fail (self != NULL);
     KiroServerPrivate *priv = KIRO_SERVER_GET_PRIVATE (self);
     memset (priv, 0, sizeof (&priv));
 }
@@ -107,6 +106,7 @@ kiro_server_init (KiroServer *self)
 static void
 kiro_server_finalize (GObject *object)
 {
+    g_return_if_fail (object != NULL);
     KiroServer *self = KIRO_SERVER (object);
     //Clean up the server
     kiro_server_stop (self);
@@ -118,6 +118,7 @@ kiro_server_finalize (GObject *object)
 static void
 kiro_server_class_init (KiroServerClass *klass)
 {
+    g_return_if_fail (klass != NULL);
     GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
     gobject_class->finalize = kiro_server_finalize;
     g_type_class_add_private (klass, sizeof (KiroServerPrivate));
@@ -406,6 +407,7 @@ start_server_main_loop (gpointer data)
 int
 kiro_server_start (KiroServer *self, const char *address, const char *port, void *mem, size_t mem_size)
 {
+    g_return_val_if_fail (self != NULL, -1);
     KiroServerPrivate *priv = KIRO_SERVER_GET_PRIVATE (self);
 
     if (priv->base) {
@@ -530,9 +532,7 @@ disconnect_client (gpointer data, gpointer user_data)
 void
 kiro_server_stop (KiroServer *self)
 {
-    if (!self)
-        return;
-
+    g_return_if_fail (self != NULL);
     KiroServerPrivate *priv = KIRO_SERVER_GET_PRIVATE (self);
 
     if (!priv->base)
