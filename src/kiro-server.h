@@ -129,6 +129,19 @@ void         kiro_server_free                (KiroServer *server);
  */
 int kiro_server_start (KiroServer *server, const char *bind_addr, const char *bind_port, void *mem, size_t mem_size);
 
+
+/**
+ * kiro_server_realloc - Change the memory that is provided by the server
+ * @server: #KiroServer to perform the operation on
+ * @mem: (transfer none): Pointer to the memory that is to be provided
+ * @mem_size: Size in bytes of the given memory
+ * Description:
+ *   Changes the memory that is provided by the server. All connected clients
+ *   will automatically be informed about this change.
+ */
+void kiro_server_realloc (KiroServer *self, void* mem, size_t mem_size);
+
+
 /**
  * kiro_server_stop - Stops the server
  * @server: #KiroServer to perform the operation on

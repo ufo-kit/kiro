@@ -56,7 +56,8 @@ struct kiro_ctrl_msg {
         KIRO_ACK_RDMA,                              // acknowledge RDMA Request and provide Memory Region Information
         KIRO_REJ_RDMA,                              // RDMA Request rejected :(  (peer_mri will be invalid)
         KIRO_PING,                                  // PING Message
-        KIRO_PONG                                   // PONG Message (PING reply)
+        KIRO_PONG,                                  // PONG Message (PING reply)
+        KIRO_REALLOC                                // Used by the server to notify the client about a new peer_mri
     } msg_type;
 
     struct ibv_mr peer_mri;
@@ -80,9 +81,9 @@ kiro_attach_qp (struct rdma_cm_id *id)
 
     id->pd = ibv_alloc_pd (id->verbs);
     id->send_cq_channel = ibv_create_comp_channel (id->verbs);
-    id->recv_cq_channel = id->send_cq_channel; //we use one shared completion channel
+    id->recv_cq_channel = ibv_create_comp_channel (id->verbs);
     id->send_cq = ibv_create_cq (id->verbs, 1, id, id->send_cq_channel, 0);
-    id->recv_cq = id->send_cq; //we use one shared completion queue
+    id->recv_cq = ibv_create_cq (id->verbs, 1, id, id->recv_cq_channel, 0);
     struct ibv_qp_init_attr qp_attr;
     memset (&qp_attr, 0, sizeof (struct ibv_qp_init_attr));
     qp_attr.qp_context = (void *) (uintptr_t) id;
