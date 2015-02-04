@@ -97,7 +97,7 @@ KiroClient* kiro_client_new                 (void);
  *   automatically freed when calling this function. If you want to continue
  *   using the memory after freeing the #KiroClient, make sure to memcpy() it
  *   first, using the informations obtained from kiro_client_get_memory() and
- *   kiro_client_get_memory_size(). 
+ *   kiro_client_get_memory_size().
  * See also:
  *   kiro_client_new, kiro_client_connect
  */
@@ -118,7 +118,7 @@ void        kiro_client_free                (KiroClient *client);
  *   @dest_port.
  * Note:
  *   When building a connection to the server, memory for the transmission is
- *   created as well. 
+ *   created as well.
  * See also:
  *   kiro_server_new
  */
@@ -152,12 +152,35 @@ void        kiro_client_disconnect             (KiroClient *client);
  *   using kiro_client_get_memory().
  * Note:
  *   The server can send a 'reallocation' request to the client, forcing it to
- *   reallocate new memory with the next occurrence of kiro_client_sync(),
- *   freeing the old memory in the process.
+ *   reallocate new memory freeing the old memory in the process. This might
+ *   change remote and local memory layout at any time!
  *See also:
- *    kiro_client_get_memory, kiro_cient_connect
+ *    kiro_client_sync_partial, kiro_client_get_memory, kiro_cient_connect
  */
 int         kiro_client_sync                (KiroClient *client);
+
+/**
+ * kiro_client_sync_partial - Read data from the connected server
+ * @client: (transfer none): The #KiroServer to use sync on
+ * @remote_offset: remote read offset in bytes
+ * @size: ammount of bytes to read. 0 for 'until end'
+ * @local_offset: offset for the storage in the local buffer
+ * Returns:
+ *   0 if successful, -1 in case of synchronisation error
+ * Description:
+ *   This synchronizes the client with the server, clining the memory
+ *   provided by the server to the local client. The memory can be accessed by
+ *   using kiro_client_get_memory(). Uses the offset parameters to determine
+ *   which memory region to read from the server and where to store the
+ *   information to.
+ * Note:
+ *   The server can send a 'reallocation' request to the client, forcing it to
+ *   reallocate new memory freeing the old memory in the process. This might
+ *   change remote and local memory layout at any time!
+ *See also:
+ *    kiro_client_sync, kiro_client_get_memory, kiro_cient_connect
+ */
+int         kiro_client_sync_partial        (KiroClient *client, gulong remote_offset, gulong size, gulong local_offset);
 
 /**
  * kiro_client_ping_server - Sends a PING to the server

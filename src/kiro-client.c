@@ -424,7 +424,7 @@ fail:
 
 
 int
-kiro_client_sync (KiroClient *self)
+kiro_client_sync_partial (KiroClient *self, gulong remote_offset, gulong size, gulong local_offset)
 {
     g_return_val_if_fail (self != NULL, -1);
     KiroClientPrivate *priv = KIRO_CLIENT_GET_PRIVATE (self);
@@ -436,8 +436,29 @@ kiro_client_sync (KiroClient *self)
 
     struct kiro_connection_context *ctx = (struct kiro_connection_context *)priv->conn->context;
 
+    if (remote_offset > ctx->peer_mr.length) {
+        g_warning ("kiro_client_sync_partial: remote_offset too large! Won't sync.");
+        return -1;
+    }
+
+    gulong read_size = ctx->peer_mr.length;
+    if (size > 0)
+        read_size = size;
+    else if (remote_offset > 0)
+        read_size -= remote_offset;  //read to the end of the memory, starting at offset
+
+    if ((remote_offset + read_size) > ctx->peer_mr.length) {
+        g_warning ("kiro_client_sync_partial: remote_offset + read_size would exceed remote memory boundary! Won't sync.");
+        return -1;
+    }
+
+    if ((local_offset + read_size) > ctx->rdma_mr->size) {
+        g_warning ("kiro_client_sync_partial: local_offset + read_size would exceed local memory boundary! Won't sync.");
+        return -1;
+    }
+
     G_LOCK (sync_lock);
-    if (rdma_post_read (priv->conn, priv->conn, ctx->rdma_mr->mem, ctx->peer_mr.length, ctx->rdma_mr->mr, 0, (uint64_t)ctx->peer_mr.addr, ctx->peer_mr.rkey)) {
+    if (rdma_post_read (priv->conn, priv->conn, ctx->rdma_mr->mem + local_offset, read_size, ctx->rdma_mr->mr, 0, (uint64_t)ctx->peer_mr.addr + remote_offset, ctx->peer_mr.rkey)) {
         g_critical ("Failed to RDMA_READ from server: %s", strerror (errno));
         goto fail;
     }
@@ -467,6 +488,13 @@ fail:
     kiro_destroy_connection (&(priv->conn));
     G_UNLOCK (sync_lock);
     return -1;
+}
+
+
+int
+kiro_client_sync (KiroClient *self)
+{
+    return kiro_client_sync_partial (self, 0, 0, 0);
 }
 
 
