@@ -51,13 +51,6 @@ void cuda_example (void *memory_pointer)
     int index = blockIdx.x * blockDim.x + threadIdx.x;
 
     mem_pointer[index/4] *= 2;
-
-    /*
-    for (int i = 0; i < 10; i++) {
-        *mem_pointer[thread] *= 2;
-        mem_pointer += 1;
-    }
-    */
 }
 
 
@@ -82,7 +75,7 @@ main ( int argc, char *argv[])
 
     GTimer *timer = g_timer_new ();
 
-    const int iterations = 10000;
+    const int iterations = 10;
 
     float t_host_infiniband = 0;
     float t_host_hosttodevice = 0;
@@ -219,22 +212,21 @@ main ( int argc, char *argv[])
     }
 
     // Inspect Data.
-    g_message ("t_host_infiniband \t %.2f ms\n", (t_host_infiniband / iterations) * 1000);
-    g_message ("t_gpu_infiniband \t %.2f ms\n", (t_gpu_infiniband / iterations) * 1000);
-    g_message ("+t_host_hosttodevice \t %.2f ms\n", (t_host_hosttodevice / iterations) * 1000);
-    g_message ("t_host_algorithm \t %.2f ms\n", (t_host_algorithm / iterations) * 1000);
-    g_message ("t_gpu_algorithm \t %.2f ms\n", (t_gpu_algorithm / iterations) * 1000);
-    g_message ("t_host_devicetohost \t %.2f ms\n", (t_host_devicetohost / iterations) * 1000);
-    g_message ("t_gpu_devicetohost \t %.2f ms\n", (t_gpu_devicetohost / iterations) * 1000);
+    g_message ("t_host_infiniband \t\t %.2f ms", (t_host_infiniband / iterations) * 1000);
+    g_message ("t_gpu_infiniband \t\t %.2f ms", (t_gpu_infiniband / iterations) * 1000);
+    g_message ("+t_host_hosttodevice \t %.2f ms", (t_host_hosttodevice / iterations) * 1000);
+    g_message ("t_host_algorithm \t\t %.2f ms", (t_host_algorithm / iterations) * 1000);
+    g_message ("t_gpu_algorithm \t\t %.2f ms", (t_gpu_algorithm / iterations) * 1000);
+    g_message ("t_host_devicetohost \t %.2f ms", (t_host_devicetohost / iterations) * 1000);
+    g_message ("t_gpu_devicetohost \t\t %.2f ms", (t_gpu_devicetohost / iterations) * 1000);
 
     float size_gb = ((float) kiro_client_get_memory_size (client_host) / (1024.0 * 1024.0 * 1024.0)) * iterations;    
 
-    g_message ("[HOST]\t Throughput Infiniband \t\t %.2f Gbyte/s\n", size_gb / t_host_infiniband);
-    g_message ("[HOST]\t Throughput Host to Device \t %.2f Gbyte/s\n", size_gb / t_host_hosttodevice);
-    g_message ("[HOST]\t Throughput Device to Host \t %.2f Gbyte/s\n", size_gb / t_host_devicetohost);
-
-    g_message ("[GPU]\t Throughput Infiniband \t\t %.2f Gbyte/s\n", size_gb / t_gpu_infiniband);
-    g_message ("[GPU]\t Throughput Device to Host \t %.2f Gbyte/s\n", size_gb / t_gpu_devicetohost);
+    g_message ("[HOST]\t Throughput Infiniband \t\t %.2f Gbyte/s", size_gb / t_host_infiniband);
+    g_message ("[HOST]\t Throughput Host to Device \t %.2f Gbyte/s", size_gb / t_host_hosttodevice);
+    g_message ("[HOST]\t Throughput Device to Host \t %.2f Gbyte/s", size_gb / t_host_devicetohost);
+    g_message ("[GPU]\t Throughput Infiniband \t\t %.2f Gbyte/s", size_gb / t_gpu_infiniband);
+    g_message ("[GPU]\t Throughput Device to Host \t %.2f Gbyte/s", size_gb / t_gpu_devicetohost);
 
     // Release used memory.
     kiro_client_free (client_host);

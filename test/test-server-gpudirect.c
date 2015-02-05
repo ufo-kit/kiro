@@ -50,7 +50,7 @@
 int 
 main (void)
 {
-    KiroServer *server = kiro_server_new ();
+    KiroServer *server = kiro_server_new (); 
 
     // Allocate 1MB of random data.
     int mem_size = 1024 * 256 * sizeof (int);
@@ -58,22 +58,21 @@ main (void)
     int *ptr = mem;
     srand (time (NULL));
     for (int i = 0; i < 1024 * 256; i++) {
-        *ptr = rand ();
-        // Show the first 20 integers for inspection.
-        if (i < 20) {
-            g_info ("%d  ", *ptr);
-        }
+        *ptr = rand () / 2;
+        if (i < 10) {
+                g_message ("%d * 2 = %d", *ptr, *ptr * 2); 
+        }   
         ptr += 1;
-    }
+    }   
 
     if (0 > kiro_server_start (server, NULL, "60010", mem, mem_size )) {
         g_critical ("Failed to start server properly");
         goto done;
-    }
+    }   
 
     while (1) {
         // Endless loop to keep server alive.
-    }
+    }   
 
 done:
     free (mem);

@@ -261,9 +261,13 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
         ctx->peer_mr = msg->peer_mri;
         g_debug ("New size is: %zu", ctx->peer_mr.length);
 #ifdef GPUDIRECT
+        if (gpudirect) {
             ctx->rdma_mr = kiro_create_rdma_memory (priv->conn->pd, ctx->peer_mr.length, IBV_ACCESS_LOCAL_WRITE, KIRO_ALLOCATE_GPU_MEMORY);
-#else
+        } else {
             ctx->rdma_mr = kiro_create_rdma_memory (priv->conn->pd, ctx->peer_mr.length, IBV_ACCESS_LOCAL_WRITE, KIRO_ALLOCATE_HOST_MEMORY);
+        }
+#else
+        ctx->rdma_mr = kiro_create_rdma_memory (priv->conn->pd, ctx->peer_mr.length, IBV_ACCESS_LOCAL_WRITE, KIRO_ALLOCATE_HOST_MEMORY);
 #endif
         G_UNLOCK (sync_lock);
 
@@ -691,7 +695,12 @@ kiro_client_disconnect (KiroClient *self)
     struct kiro_connection_context *ctx = (struct kiro_connection_context *) (priv->conn->context);
     void *rdma_mem = ctx->rdma_mr->mem;
     kiro_destroy_connection (&(priv->conn));
+#ifdef GPUDIRECT
+    cudaFree (rdma_mem);
+    NULL;
+#else
     free (rdma_mem);
+#endif
 
     // priv->ec is just an easy-access pointer. Don't free it. Just NULL it
     priv->ec = NULL;
