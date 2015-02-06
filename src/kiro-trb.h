@@ -286,6 +286,8 @@ int kiro_trb_is_setup (KiroTrb *trb);
  * @trb: #KiroTrb to perform the operation on
  * @element_size: Individual size of the elements to store in bytes
  * @element_count: Maximum number of elements to be stored
+ * Returns:
+ *   integer: < 0 for error, >= 0 for success
  * Description:
  *   (Re)Allocates internal memory for the given ammount of elements
  *   at the given individual size
@@ -310,7 +312,7 @@ int kiro_trb_reshape (KiroTrb *trb, uint64_t element_size, uint64_t element_coun
  *   tries to copy that memory into its own.
  * Notes:
  *   The given memory is treated as a correct KIRO TRB memory block,
- *   including a consistend memory header. That header is read and
+ *   including a consistent memory header. That header is read and
  *   then cloned into the internal memory according to the headers
  *   information.
  *   If the given memory is not a consistent KIRO TRB memory block,
@@ -373,13 +375,14 @@ void kiro_trb_refresh (KiroTrb *trb);
  *   takes ownership over the memory.
  * Notes:
  *   The given memory is treated as a correct KIRO TRB memory block,
- *   including a consistend memory header. That header is read and
+ *   including a consistent memory header. That header is read and
  *   the TRB sets up all internal structures in accordance to that
  *   header.
  *   If the given memory is not a consistent KIRO TRB memory block,
  *   the behavior of this function is undefined.
  *   The TRB takes full ownership of the given memory and may free
  *   it at will.
+ *   Any previously owned memory is freed.
  * See also:
  *   kiro_trb_clone, kiro_trb_reshape
  */
