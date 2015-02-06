@@ -56,8 +56,8 @@ struct _KiroClientPrivate {
 
     gboolean                    close_signal; // Flag used to signal event listening to stop for connection tear-down
     GMainLoop                   *main_loop;   // Main loop of the server for event polling and handling
-    GIOChannel                  *conn_ec;     // GLib IO Channel encapsulation for the connection manager event channel
-    GIOChannel                  *rdma_ec;     // GLib IO Channel encapsulation for the communication event channel
+    guint                       rdma_ec_id;   // ID of the GSource that will be created for the rdma_ec GIOChannel
+    guint                       conn_ec_id;   // ID of the GSource that will be created for the conn_ec GIOChannel
     GThread                     *main_thread; // Main KIRO client thread
 };
 
@@ -295,6 +295,28 @@ start_client_main_loop (gpointer data)
 }
 
 
+gboolean
+stop_client_main_loop (KiroClientPrivate *priv)
+{
+    if (priv->close_signal) {
+        // Get the IO Channels and destroy them.
+        // This will also unref their respective GIOChannels
+        GSource *tmp = g_main_context_find_source_by_id (NULL, priv->conn_ec_id);
+        g_source_destroy (tmp);
+        priv->conn_ec_id = 0;
+
+        tmp = g_main_context_find_source_by_id (NULL, priv->rdma_ec_id);
+        g_source_destroy (tmp);
+        priv->rdma_ec_id = 0;
+
+        g_main_loop_quit (priv->main_loop);
+        g_debug ("Event handling stopped");
+        return FALSE;
+    }
+    return TRUE;
+}
+
+
 int
 kiro_client_connect (KiroClient *self, const char *address, const char *port)
 {
@@ -379,16 +401,17 @@ kiro_client_connect (KiroClient *self, const char *address, const char *port)
 
     priv->ec = priv->conn->channel; //For easy access
     priv->main_loop = g_main_loop_new (NULL, FALSE);
-    priv->conn_ec = g_io_channel_unix_new (priv->ec->fd);
-    priv->rdma_ec = g_io_channel_unix_new (priv->conn->recv_cq_channel->fd);
-    g_io_add_watch (priv->conn_ec, G_IO_IN | G_IO_PRI, process_cm_event, (gpointer)priv);
-    g_io_add_watch (priv->rdma_ec, G_IO_IN | G_IO_PRI, process_rdma_event, (gpointer)priv);
+    g_idle_add ((GSourceFunc)stop_client_main_loop, priv);
+    GIOChannel *conn_ec = g_io_channel_unix_new (priv->ec->fd);
+    priv->conn_ec_id = g_io_add_watch (conn_ec, G_IO_IN | G_IO_PRI, process_cm_event, (gpointer)priv);
+    GIOChannel *rdma_ec = g_io_channel_unix_new (priv->conn->recv_cq_channel->fd);
+    priv->rdma_ec_id = g_io_add_watch (rdma_ec, G_IO_IN | G_IO_PRI, process_rdma_event, (gpointer)priv);
     priv->main_thread = g_thread_new ("KIRO Client main loop", start_client_main_loop, priv->main_loop);
 
     // We gave control to the main_loop (with add_watch) and don't need our ref
     // any longer
-    g_io_channel_unref (priv->conn_ec);
-    g_io_channel_unref (priv->rdma_ec);
+    g_io_channel_unref (conn_ec);
+    g_io_channel_unref (rdma_ec);
 
     return 0;
 
@@ -601,26 +624,17 @@ kiro_client_disconnect (KiroClient *self)
 
     //Shut down event listening
     priv->close_signal = TRUE;
-    g_debug ("Event handling stopped");
+    while (g_main_loop_is_running (priv->main_loop)) {};
 
-    // Stop the main loop and clear its memory
-    g_main_loop_quit (priv->main_loop);
+    // Main loop stopped. Clear its memory
     g_main_loop_unref (priv->main_loop);
     priv->main_loop = NULL;
 
     // Ask the main thread to join (It probably already has, but we do it
     // anyways. Just in case!)
     g_thread_join (priv->main_thread);
+    g_thread_unref (priv->main_thread);
     priv->main_thread = NULL;
-
-    // We don't need the connection management IO channel container any more.
-    // Unref and thus free it.
-    g_io_channel_unref (priv->conn_ec);
-    priv->conn_ec = NULL;
-
-    // The same goes for the cp channels
-    g_io_channel_unref (priv->rdma_ec);
-    priv->rdma_ec = NULL;
 
     priv->close_signal = FALSE;
 
