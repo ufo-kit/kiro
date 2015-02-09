@@ -187,7 +187,7 @@ kiro_trb_get_raw_buffer (KiroTrb *self)
 
 
 void *
-kiro_trb_get_element (KiroTrb *self, uint64_t element)
+kiro_trb_get_element (KiroTrb *self, glong element_in)
 {
     g_return_val_if_fail (self != NULL, NULL);
     KiroTrbPrivate *priv = KIRO_TRB_GET_PRIVATE (self);
@@ -195,12 +195,18 @@ kiro_trb_get_element (KiroTrb *self, uint64_t element)
     if (priv->initialized != 1)
         return NULL;
 
-    uint64_t relative = 0;
+    gulong offset = element_in;
+    if (0 <= element_in) {
+        offset %= priv->max_elements;
+        offset = priv->max_elements - offset;
+    }
+    else {
+        offset *= -1;
+        offset %= priv->max_elements;
+    }
 
-    if (priv->iteration == 0)
-        relative = element * priv->element_size;
-    else
-        relative = ((priv->current - priv->frame_top) + (priv->element_size * element)) % (priv->buff_size - sizeof (struct KiroTrbInfo));
+    gulong relative = (priv->current - priv->frame_top) + (offset * priv->element_size);
+    relative %= (priv->buff_size - sizeof(struct KiroTrbInfo));
 
     return priv->frame_top + relative;
 }

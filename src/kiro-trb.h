@@ -199,7 +199,7 @@ void* kiro_trb_get_raw_buffer (KiroTrb *trb);
  * See also:
  *   kiro_trb_get_element_size, kiro_trb_get_raw_buffer
  */
-void* kiro_trb_get_element (KiroTrb *trb, uint64_t index);
+void* kiro_trb_get_element (KiroTrb *trb, glong index);
 
 
 /**
