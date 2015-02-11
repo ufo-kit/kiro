@@ -58,6 +58,9 @@ struct _KiroSbPrivate {
     GThread     *main_thread;   // Main thread for the main_loop
     GMainLoop   *main_loop;     // main_loop *duh*
     guint       close_signal;   // Used to signal shutdown of the main_loop
+    gboolean    freeze;         // Allows to prevent auto-sync
+
+    GHookList   callbacks;      // List of registerd sync-callbacks
 };
 
 
@@ -91,6 +94,8 @@ kiro_sb_init (KiroSb *self)
     priv->trb = NULL;
     priv->server = NULL;
     priv->client = NULL;
+    priv->freeze = FALSE;
+    g_hook_list_init (&(priv->callbacks), sizeof (GHook));
 }
 
 
@@ -99,22 +104,8 @@ kiro_sb_finalize (GObject *object)
 {
     g_return_if_fail (object != NULL);
     KiroSb *self = KIRO_SB (object);
-    KiroSbPrivate *priv = KIRO_SB_GET_PRIVATE (self);
 
-    if (priv->trb) {
-        kiro_trb_purge (priv->trb, FALSE);
-        kiro_trb_free (priv->trb);
-    }
-
-    if (priv->server)
-        kiro_server_free (priv->server);
-
-    if (priv->client)
-        kiro_client_free (priv->client);
-
-    priv->trb = NULL;
-    priv->server = NULL;
-    priv->client = NULL;
+    kiro_sb_stop (self);
 
     G_OBJECT_CLASS (kiro_sb_parent_class)->finalize (object);
 }
@@ -127,6 +118,44 @@ kiro_sb_class_init (KiroSbClass *klass)
     GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
     gobject_class->finalize = kiro_sb_finalize;
     g_type_class_add_private (klass, sizeof (KiroSbPrivate));
+}
+
+
+void
+kiro_sb_stop (KiroSb *self)
+{
+    g_return_if_fail (self != NULL);
+    KiroSbPrivate *priv = KIRO_SB_GET_PRIVATE (self);
+
+    g_return_if_fail (priv->initialized != 0);
+
+    if (priv->initialized == 1) {
+        if (priv->server)
+            kiro_server_free (priv->server);
+    }
+
+    if (priv->initialized == 2) {
+        priv->close_signal = TRUE;
+        while (g_main_loop_is_running (priv->main_loop)) {}
+        g_thread_join (priv->main_thread);
+        g_thread_unref (priv->main_thread);
+        priv->main_thread = NULL;
+
+        if (priv->client)
+            kiro_client_free (priv->client);
+    }
+
+    g_hook_list_clear (&(priv->callbacks));
+
+    if (priv->trb) {
+        kiro_trb_purge (priv->trb, FALSE);
+        kiro_trb_free (priv->trb);
+    }
+
+    priv->trb = NULL;
+    priv->server = NULL;
+    priv->client = NULL;
+    priv->initialized = 0;
 }
 
 
@@ -151,18 +180,40 @@ idle_func (KiroSbPrivate *priv)
         return G_SOURCE_REMOVE;
     }
 
+    if (TRUE == priv->freeze)
+        return G_SOURCE_CONTINUE;
+
     struct KiroTrbInfo *header = (struct KiroTrbInfo *)kiro_trb_get_raw_buffer (priv->trb);
     gulong old_offset = header->offset;
     kiro_client_sync_partial (priv->client, 0, sizeof(struct KiroTrbInfo), 0);
     kiro_trb_refresh (priv->trb);
-    if (old_offset != header->offset) {
-        g_debug ("Fetching new element");
-        gulong offset = (gulong) (kiro_trb_get_element (priv->trb, -1) - kiro_trb_get_raw_buffer (priv->trb));
-        kiro_client_sync_partial (priv->client, offset, kiro_trb_get_element_size (priv->trb), offset); 
-        /*INVOKE callback*/
+    if ((old_offset != header->offset) && 0 < header->offset) {
+        gulong offset = (gulong) (kiro_trb_get_element (priv->trb, 1) - kiro_trb_get_raw_buffer (priv->trb));
+        kiro_client_sync_partial (priv->client, offset, kiro_trb_get_element_size (priv->trb), offset);
+        g_hook_list_invoke_check (&(priv->callbacks), FALSE);
     }
 
     return G_SOURCE_CONTINUE;
+}
+
+
+void
+kiro_sb_freeze (KiroSb *self)
+{
+    g_return_if_fail (self != NULL);
+    KiroSbPrivate *priv = KIRO_SB_GET_PRIVATE (self);
+
+    priv->freeze = TRUE;
+}
+
+
+void
+kiro_sb_thaw (KiroSb *self)
+{
+    g_return_if_fail (self != NULL);
+    KiroSbPrivate *priv = KIRO_SB_GET_PRIVATE (self);
+
+    priv->freeze = FALSE;
 }
 
 
@@ -176,7 +227,7 @@ kiro_sb_serve (KiroSb *self, gulong size)
 
     g_return_val_if_fail ((priv->trb = kiro_trb_new ()), FALSE);
 
-    if (0 > kiro_trb_reshape (priv->trb, size, 3)) {
+    if (0 > kiro_trb_reshape (priv->trb, size, 2)) {
         g_debug ("Failed to create KIRO ring buffer");
         kiro_trb_free (priv->trb);
         return FALSE;
@@ -197,6 +248,46 @@ kiro_sb_serve (KiroSb *self, gulong size)
     g_message ("SyncBuffer ready");
 
     return TRUE;
+}
+
+
+void *
+kiro_sb_get_data (KiroSb *self)
+{
+    g_return_val_if_fail (self != NULL, NULL);
+
+    KiroSbPrivate *priv = KIRO_SB_GET_PRIVATE (self);
+    g_return_val_if_fail (priv->initialized != 2, NULL);
+
+    struct KiroTrbInfo *header = kiro_trb_get_raw_buffer (priv->trb);
+    if (header->offset > 1)
+        return kiro_trb_get_element (priv->trb, 1);
+    else
+        return kiro_trb_get_element (priv->trb, 0);
+}
+
+
+gboolean
+kiro_sb_push (KiroSb *self, void *data_in)
+{
+    g_return_val_if_fail (self != NULL, FALSE);
+
+    KiroSbPrivate *priv = KIRO_SB_GET_PRIVATE (self);
+    g_return_val_if_fail (priv->initialized != 1, FALSE);
+
+    return kiro_trb_push (priv->trb, data_in);
+}
+
+
+void *
+kiro_sb_push_dma (KiroSb *self)
+{
+    g_return_val_if_fail (self != NULL, FALSE);
+
+    KiroSbPrivate *priv = KIRO_SB_GET_PRIVATE (self);
+    g_return_val_if_fail (priv->initialized != 1, FALSE);
+
+    return kiro_trb_dma_push (priv->trb);
 }
 
 
@@ -225,7 +316,43 @@ kiro_sb_clone (KiroSb *self, const gchar* address, const gchar* port)
     g_idle_add ((GSourceFunc)idle_func, priv);
     priv->main_thread = g_thread_new ("KIRO SB Main Loop", (GThreadFunc)start_main_loop, priv->main_loop);
 
+    priv->initialized = 2;
     return TRUE;
+}
+
+
+gulong
+kiro_sb_add_sync_callback (KiroSb *self, KiroSbSyncCallbackFunc func)
+{
+    g_return_val_if_fail (self != NULL, 0);
+
+    KiroSbPrivate *priv = KIRO_SB_GET_PRIVATE (self);
+
+    GHook *new_hook = g_hook_alloc (&(priv->callbacks));
+    new_hook->data = self;
+    new_hook->func = (GHookCheckFunc)func;
+    g_hook_append (&(priv->callbacks), new_hook);
+    return new_hook->hook_id;
+}
+
+
+gboolean
+kiro_sb_remove_sync_callback (KiroSb *self, gulong hook_id)
+{
+    g_return_val_if_fail (self != NULL, FALSE);
+    KiroSbPrivate *priv = KIRO_SB_GET_PRIVATE (self);
+
+    return g_hook_destroy (&(priv->callbacks), hook_id);
+}
+
+
+void
+kiro_sb_clear_sync_callbacks (KiroSb *self)
+{
+    g_return_val_if_fail (self != NULL, FALSE);
+    KiroSbPrivate *priv = KIRO_SB_GET_PRIVATE (self);
+
+    g_hook_list_clear (&(priv->callbacks));
 }
 
 
@@ -239,5 +366,3 @@ kiro_sb_get_size (KiroSb *self)
 
     return kiro_trb_get_element_size (priv->trb);
 }
-/* Privat functions */
-
