@@ -27,10 +27,22 @@ if (GPUDIRECT)
    add_definitions(-DGPUDIRECT)
    cuda_add_executable(kiro-server-gpudirect test-server-gpudirect.c)
    target_link_libraries(kiro-server-gpudirect kiro gobject-2.0 glib-2.0)
+
    cuda_add_executable(kiro-test-gpudirect test-client-gpudirect.cu)
    target_link_libraries(kiro-test-gpudirect kiro gobject-2.0 glib-2.0)
+
+   cuda_add_executable(kiro-test-proxy-server test-proxy-server.c)
+   target_link_libraries(kiro-test-proxy-server kiro gobject-2.0 glib-2.0)
+
+   cuda_add_executable(kiro-test-proxy-client test-proxy-client.c)
+   target_link_libraries(kiro-test-proxy-client kiro gobject-2.0 glib-2.0)
+
+   cuda_add_executable(kiro-test-proxy-gpudirect test-proxy-gpudirect.cu)
+   target_link_libraries(kiro-test-proxy-gpudirect kiro gobject-2.0 glib-2.0)
+
    install(TARGETS kiro-test-bandwidth kiro-test-latency kiro-server
       kiro-server-gpudirect kiro-test-gpudirect
+        kiro-test-proxy-server kiro-test-proxy-client kiro-test-proxy-gpudirect
   	  RUNTIME DESTINATION ${KIRO_BINDIR})
 else()
    install(TARGETS kiro-test-bandwidth kiro-test-latency kiro-server
