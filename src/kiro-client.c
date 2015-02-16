@@ -205,18 +205,23 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
 
     if (type == KIRO_ACK_RDMA) {
         g_debug ("Got RDMI Access information from Server");
-        ctx->peer_mr = (((struct kiro_ctrl_msg *) (ctx->cf_mr_recv->mem))->peer_mri);
-        g_debug ("Expected Memory Size is: %zu", ctx->peer_mr.length);
-        ctx->rdma_mr = kiro_create_rdma_memory (priv->conn->pd, ctx->peer_mr.length, IBV_ACCESS_LOCAL_WRITE);
+        if (ctx->rdma_mr) {
+            g_debug ("But memory is already allocated. Ignoring");
+        }
+        else {
+            ctx->peer_mr = (((struct kiro_ctrl_msg *) (ctx->cf_mr_recv->mem))->peer_mri);
+            g_debug ("Expected Memory Size is: %zu", ctx->peer_mr.length);
+            ctx->rdma_mr = kiro_create_rdma_memory (priv->conn->pd, ctx->peer_mr.length, IBV_ACCESS_LOCAL_WRITE);
 
-        if (!ctx->rdma_mr) {
-            //FIXME: Connection teardown in an event handler routine? Not a good
-            //idea...
-            g_critical ("Failed to allocate memory for receive buffer (Out of memory?)");
-            rdma_disconnect (priv->conn);
-            kiro_destroy_connection_context (&ctx);
-            rdma_destroy_ep (priv->conn);
-            return TRUE;
+            if (!ctx->rdma_mr) {
+                //FIXME: Connection teardown in an event handler routine? Not a good
+                //idea...
+                g_critical ("Failed to allocate memory for receive buffer (Out of memory?)");
+                rdma_disconnect (priv->conn);
+                kiro_destroy_connection_context (&ctx);
+                rdma_destroy_ep (priv->conn);
+                return TRUE;
+            }
         }
     }
     if (type == KIRO_PONG) {
