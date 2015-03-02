@@ -117,7 +117,8 @@ typedef gboolean KiroContinueFlag;
 
 /**
  * KiroSbSyncCallbackFunc - Function type for sync callbacks os a #KiroSb
- * @sb: (transfer none): The #KiroSb which invoked this callback
+ * @user_data: (transfer none): The #user_data which was provided during
+ * registration of this callback
  * Returns: A #KiroContinueFlag
  * Description:
  *   Defines the type of a callback function which will be invoked every time
@@ -129,7 +130,7 @@ typedef gboolean KiroContinueFlag;
  * See also:
  *   kiro_sb_add_sync_callback, kiro_sb_remove_sync_callback, kiro_sb_clear_sync_callbacks
  */
-typedef KiroContinueFlag (*KiroSbSyncCallbackFunc)   (KiroSb *sb);
+typedef KiroContinueFlag (*KiroSbSyncCallbackFunc)   (void *user_data);
 
 /**
  * kiro_sb_add_sync_callback - Add a sync callback to the #KiroSb
@@ -146,7 +147,7 @@ typedef KiroContinueFlag (*KiroSbSyncCallbackFunc)   (KiroSb *sb);
  * See also:
  *   kiro_sb_remove_sync_callback, kiro_sb_clear_sync_callbacks
  */
-gulong    kiro_sb_add_sync_callback (KiroSb *sb, KiroSbSyncCallbackFunc callback);
+gulong    kiro_sb_add_sync_callback (KiroSb *sb, KiroSbSyncCallbackFunc callback, void *user_data);
 
 /**
  * kiro_sb_remove_sync_callback - Remove a callback from the list
@@ -265,9 +266,27 @@ void     kiro_sb_thaw         (KiroSb *sb);
  *   after a sync, you should use memcpy().
  * See also:
  *   kiro_sb_freeze, kiro_sb_serve, kiro_sb_clone, kiro_sb_push,
- *   kiro_sb_push_dma
+ *   kiro_sb_push_dma, kiro_sb_get_data_blocking
  */
 void*   kiro_sb_get_data     (KiroSb *sb);
+
+/**
+ * kiro_sb_get_data_blocking - Wait for new data and return a pointer to it
+ * @sb: (transfer none) The #KiroSb to get the data from
+ * Returns: A void pointer the stored data
+ * Description:
+ *   Calling this function will do the same thing as kiro_sb_get_data, but it
+ *   will internaly wait until new data has arived before returning it.
+ * Note:
+ *   The returned pointer to the element might become invalid at any time by
+ *   automatic or manual sync. Under no circumstances might the returned pointer
+ *   be freed by the user. If you want to ensure access to the pointed-to data
+ *   after a sync, you should use memcpy().
+ * See also:
+ *   kiro_sb_freeze, kiro_sb_serve, kiro_sb_clone, kiro_sb_push,
+ *   kiro_sb_push_dma, kiro_sb_get_data
+ */
+void*   kiro_sb_get_data_blocking  (KiroSb *sb);
 
 /**
  * kiro_sb_push - Push data into the memory

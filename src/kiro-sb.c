@@ -188,7 +188,7 @@ idle_func (KiroSbPrivate *priv)
     kiro_client_sync_partial (priv->client, 0, sizeof(struct KiroTrbInfo), 0);
     kiro_trb_refresh (priv->trb);
     if ((old_offset != header->offset) && 0 < header->offset) {
-        gulong offset = (gulong) (kiro_trb_get_element (priv->trb, 1) - kiro_trb_get_raw_buffer (priv->trb));
+        gulong offset = (gulong) (kiro_trb_get_element (priv->trb, -1) - kiro_trb_get_raw_buffer (priv->trb));
         kiro_client_sync_partial (priv->client, offset, kiro_trb_get_element_size (priv->trb), offset);
         g_hook_list_invoke_check (&(priv->callbacks), FALSE);
     }
@@ -227,7 +227,7 @@ kiro_sb_serve (KiroSb *self, gulong size)
 
     g_return_val_if_fail ((priv->trb = kiro_trb_new ()), FALSE);
 
-    if (0 > kiro_trb_reshape (priv->trb, size, 2)) {
+    if (0 > kiro_trb_reshape (priv->trb, size, 3)) {
         g_debug ("Failed to create KIRO ring buffer");
         kiro_trb_free (priv->trb);
         return FALSE;
@@ -251,19 +251,48 @@ kiro_sb_serve (KiroSb *self, gulong size)
 }
 
 
+KiroContinueFlag
+ready_callback (gboolean *ready)
+{
+    *ready = TRUE;
+    return KIRO_CALLBACK_REMOVE;
+}
+
+
+void *
+kiro_sb_get_data_blocking (KiroSb *self)
+{
+    g_return_val_if_fail (self != NULL, NULL);
+
+    gboolean *ready = g_malloc(sizeof (gboolean));
+    if (!ready)
+        return NULL;
+    *ready = FALSE;
+    kiro_sb_add_sync_callback (self, (KiroSbSyncCallbackFunc)ready_callback, ready);
+
+    while (!(*ready)) {}
+    g_free (ready);
+    return kiro_sb_get_data (self);
+}
+
+
 void *
 kiro_sb_get_data (KiroSb *self)
 {
     g_return_val_if_fail (self != NULL, NULL);
-
     KiroSbPrivate *priv = KIRO_SB_GET_PRIVATE (self);
-    g_return_val_if_fail (priv->initialized != 2, NULL);
 
     struct KiroTrbInfo *header = kiro_trb_get_raw_buffer (priv->trb);
-    if (header->offset > 1)
-        return kiro_trb_get_element (priv->trb, 1);
-    else
-        return kiro_trb_get_element (priv->trb, 0);
+    switch (header->offset) {
+        case 0:
+            return kiro_trb_get_element (priv->trb, 0);
+            break;
+        case 1:
+            return kiro_trb_get_element (priv->trb, 1);
+            break;
+        default:
+            return kiro_trb_get_element (priv->trb, -1);
+    }
 }
 
 
@@ -322,14 +351,14 @@ kiro_sb_clone (KiroSb *self, const gchar* address, const gchar* port)
 
 
 gulong
-kiro_sb_add_sync_callback (KiroSb *self, KiroSbSyncCallbackFunc func)
+kiro_sb_add_sync_callback (KiroSb *self, KiroSbSyncCallbackFunc func, void *user_data)
 {
     g_return_val_if_fail (self != NULL, 0);
 
     KiroSbPrivate *priv = KIRO_SB_GET_PRIVATE (self);
 
     GHook *new_hook = g_hook_alloc (&(priv->callbacks));
-    new_hook->data = self;
+    new_hook->data = user_data;
     new_hook->func = (GHookCheckFunc)func;
     g_hook_append (&(priv->callbacks), new_hook);
     return new_hook->hook_id;
