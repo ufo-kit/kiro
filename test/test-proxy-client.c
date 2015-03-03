@@ -63,6 +63,7 @@ main ( int argc, char *argv[])
     }
     
     unsigned long int current_frame = 0;
+
     while (1) {
         // Receive data.
         kiro_client_sync (kiroClient);

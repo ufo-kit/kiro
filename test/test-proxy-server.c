@@ -51,12 +51,13 @@ main (void)
     unsigned long int *frame; // Pointer to framenumber
     void *data; // Pointer to data
     int data_size = 1024; // Size of data set. Must be multiple of int.
-    size_t memory_size = sizeof (frame) + data_size;
+    size_t memory_size = sizeof (*frame) + data_size;
 
     // Allocate memory and point pointers to it.
     memory = malloc (memory_size);
     frame = memory;
-    data = memory + sizeof (frame);
+    *frame = 0;
+    data = memory + sizeof (*frame);
     
 
     // Create server that holds data.
@@ -73,7 +74,7 @@ main (void)
         // Change data.
         int i;
         int *offset;
-        for (i = 0; i < (int) (data_size / sizeof (int)); i++) {
+        for (i = 0; i < data_size; i += sizeof (int)) {
             offset = data + i;
             *offset = rand();
         }

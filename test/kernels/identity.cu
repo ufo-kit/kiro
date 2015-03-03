@@ -6,13 +6,27 @@
  *
  **/
 __global__
-void identity (void *memory_pointer, int memory_size)
+void identity (void *input, int input_size, void *output, int output_size)
 {
-/*
-    int *mem_pointer = (int*) memory_pointer;
+    // Normal algorithm here.
+    void *offset_input;
+    void *offset_output;
+    int i;
 
-    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    // DEBUG:
+    *(int *)(output + sizeof (unsigned long int)) = 42;
 
-    mem_pointer[index/4] *= 2;
-*/
+
+    offset_input = input + sizeof (unsigned long int);
+    offset_output = output + sizeof (unsigned long int);
+
+    for (i = 0; i < input_size; i += sizeof (int)) {
+        *(int *)offset_output = *(int *)offset_input;
+        offset_input = offset_input + i;
+        offset_output = offset_output + i;
+    }
+
+    // Increment frame. This always has to happen last, so the client knows, it's ready.
+    *(unsigned long int *)output = *(unsigned long int *)input;
+
 }
