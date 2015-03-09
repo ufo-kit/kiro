@@ -18,6 +18,8 @@ add_executable(kiro-test-bandwidth test-client-bandwidth.c)
 target_link_libraries(kiro-test-bandwidth kiro gobject-2.0 glib-2.0)
 add_executable(kiro-server test-server.c)
 target_link_libraries(kiro-server kiro gobject-2.0 glib-2.0)
+add_executable(kiro-test-partial test-partial.c)
+target_link_libraries(kiro-test-partial kiro gobject-2.0 glib-2.0)
 
 install(TARGETS kiro-test-bandwidth kiro-test-latency kiro-server
     RUNTIME DESTINATION ${KIRO_BINDIR})

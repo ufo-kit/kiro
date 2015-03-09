@@ -178,6 +178,7 @@ main (void)
     gchar *buffer = NULL;
 
     while (1) {
+        sleep (1);
         buffer = kiro_trb_dma_push (rb);
         print_current_frame (buffer, frame, 512, 512, rand);
         frame++;
