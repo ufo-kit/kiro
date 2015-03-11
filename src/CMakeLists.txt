@@ -6,6 +6,7 @@ set(kiro_SRCS
     kiro-client.c
     kiro-trb.c
     kiro-sb.c
+    kiro-messenger.c
     )
 
 set(kiro_HDRS
@@ -13,6 +14,7 @@ set(kiro_HDRS
     kiro-client.h
     kiro-trb.h
     kiro-sb.h
+    kiro-messenger.h
     )
 
 create_enums(kiro-enums
