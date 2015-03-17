@@ -552,6 +552,13 @@ kiro_server_start (KiroServer *self, const char *address, const char *port, void
     priv->mem_size = mem_size;
     priv->ec = rdma_create_event_channel();
 
+    // NOTE:
+    // We need to move the base connection to a newly created event channel
+    // because the standard event channel, which is given by the call to
+    // rdma_create_ep is somehow broken and will only report certain events.
+    // I have no idea if I am missing something here, or if this is a bug in the
+    // ib_verbs / Infiniband driver implementation, but thats just the way it is
+    // for now.
     if (rdma_migrate_id (priv->base, priv->ec)) {
         g_critical ("Was unable to migrate connection to new Event Channel: %s", strerror (errno));
         rdma_destroy_ep (priv->base);
