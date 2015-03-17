@@ -57,8 +57,8 @@ enum KiroMessengerType {
 };
 
 enum KiroMessageStatus {
-    KIRO_MESSAGE_OKAY = 0,
-    KIRO_MESSAGE_SENT_SUCCESS,
+    KIRO_MESSAGE_PENDING = 0,
+    KIRO_MESSAGE_SEND_SUCCESS,
     KIRO_MESSAGE_SEND_FAILED,
     KIRO_MESSAGE_RECEIVED
 };
@@ -182,27 +182,27 @@ typedef KiroContinueFlag (*KiroMessengerCallbackFunc)   (struct KiroMessage *mes
  * @callback: Pointer to a #KiroReceiveCallbackFunc that will be invoked when a
  * messege is received
  * @user_data: Pointer to user data that will be passed to the callback function
- * Returns: Integer ID of the registered callback. -1 in case of error
+ * Returns: Integer ID of the registered callback. 0 in case of error
  * Description:
  *   Registers the given callback function to be invoked every time the
  *   messenger receives a message.
  * See also:
  *   kiro_messenger_remove_receive_callback
  */
-int kiro_messenger_add_receive_callback (KiroMessenger *messenger, KiroMessengerCallbackFunc *callback, void *user_data);
+gulong kiro_messenger_add_receive_callback (KiroMessenger *messenger, KiroMessengerCallbackFunc *callback, void *user_data);
 
 /**
  * kiro_messenger_remove_receive_callback - Removes a previously registered
  * callback
  * @messenger: #KiroMessenger to perform this operation on
  * @callback_id: ID of the callback that should be removed
- * Returns: 0 on success -1 in case of error
+ * Returns: %TRUE on success %FALSE in case of error
  * Description:
  *   Removes the callback with the given ID.
  * See also:
  *   kiro_messenger_add_receive_callback
  */
-int kiro_messenger_remove_receive_callback (KiroMessenger *messenger, int callback_id);
+gboolean kiro_messenger_remove_receive_callback (KiroMessenger *messenger, gulong callback_id);
 
 /**
  * kiro_messenger_add_send_callback - Register a callback function for
@@ -218,7 +218,7 @@ int kiro_messenger_remove_receive_callback (KiroMessenger *messenger, int callba
  * See also:
  *   kiro_messenger_remove_send_callback
  */
-int kiro_messenger_add_send_callback (KiroMessenger *messenger, KiroMessengerCallbackFunc *callback, void *user_data);
+//int kiro_messenger_add_send_callback (KiroMessenger *messenger, KiroMessengerCallbackFunc *callback, void *user_data);
 
 /**
  * kiro_messenger_remove_send_callback - Removes a previously registered
@@ -231,7 +231,7 @@ int kiro_messenger_add_send_callback (KiroMessenger *messenger, KiroMessengerCal
  * See also:
  *   kiro_messenger_send_receive_callback
  */
-int kiro_messenger_remove_send_callback (KiroMessenger *messenger, int callback_id);
+//int kiro_messenger_remove_send_callback (KiroMessenger *messenger, int callback_id);
 
 /**
  * kiro_messenger_send - send the given message to the remote side
@@ -239,7 +239,10 @@ int kiro_messenger_remove_send_callback (KiroMessenger *messenger, int callback_
  * @message: Pointer to a #KiroMessage for sending
  * Returns: 0 on success, -1 in case of error
  * Description:
- *   Sends the given #KiroMessage to the remote side
+ *   Sends the given #KiroMessage to the remote side. The 'status' field of the
+ *   #KiroMessage struct will be set to KIRO_MESSAGE_SEND_SUCCESS, once the
+ *   message has been sent successfully, or to KIRO_MESSAGE_SEND_FAILED in case
+ *   of an error.
  */
 int kiro_messenger_send_message (KiroMessenger *messenger, struct KiroMessage *message);
 
