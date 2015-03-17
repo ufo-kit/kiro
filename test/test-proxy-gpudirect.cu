@@ -39,7 +39,7 @@
 #include <unistd.h>
 #include "kiro-client.h"
 #include "kiro-server.h"
-
+#include <glib.h>
 #include "kernels/identity.cu"
 
 
@@ -57,6 +57,14 @@
     int 
 main ( int argc, char *argv[])
 {
+    // Benchmark variables
+    GTimer *timer = g_timer_new ();
+    float t_host_infiniband = 0;
+    float t_host_algorithm = 0;
+    const int iterations = 1000;
+    int iterate = iterations;
+
+    // Proxy variables
     cudaError_t error;
     unsigned long int current_frame = 0;
     unsigned long int remote_frame = 0;
@@ -66,7 +74,7 @@ main ( int argc, char *argv[])
         return -1;
     }
 
-    // Switch on GPU memory allocation and gpudirect data path.
+    // Switch off GPU memory allocation and gpudirect data path.
     gpudirect = 1;
     // Select first graphics card.
     cudaSetDevice (0);
@@ -78,10 +86,11 @@ main ( int argc, char *argv[])
         return -1;
     }
 
-    // Malloc some cuda memory for the kernel result.
-    void *result;
+    // Malloc some memory for the kernel result.
+    void *result_gpu;
+    kiro_client_sync (kiroClient);
     size_t result_size = kiro_client_get_memory_size (kiroClient);
-    error = cudaMalloc (&result, result_size);
+    error = cudaMalloc (&result_gpu, result_size);
     if (error != 0) {
         g_message ("cudaMalloc: %s \n", cudaGetErrorString(error));
         return -1;
@@ -89,44 +98,59 @@ main ( int argc, char *argv[])
 
     // Start the server with that memory.
     KiroServer *kiroServer = kiro_server_new (); 
-    if (0 > kiro_server_start (kiroServer, NULL, "60011", result, result_size)) {
+    if (0 > kiro_server_start (kiroServer, NULL, "60011", result_gpu, result_size)) {
         g_critical ("Failed to start server properly");
-        goto done;
-    }   
+        return -1;
+    }
 
-    // Now endlessly receive data, run the kernel on it and serve it.
     while (1) {
         // Receive current_frame.
         kiro_client_sync_partial (kiroClient, 0, sizeof (remote_frame), 0);
-        error = cudaMemcpy (&remote_frame, kiro_client_get_memory (kiroClient), sizeof (remote_frame), cudaMemcpyDeviceToHost);
+        cudaMemcpy (&remote_frame, kiro_client_get_memory (kiroClient), sizeof (remote_frame), cudaMemcpyDeviceToHost);
         if (error != 0) {
-            g_message ("cudaMemcpy: %s \n", cudaGetErrorString(error));
+            g_message ("cudaMalloc: %s \n", cudaGetErrorString(error));
             return -1;
         }
-        cudaDeviceSynchronize ();
         // Check if new data (e.g. new Image) is ready.
         if (remote_frame > current_frame) {
             // Tell user if frames have been skipped.
-            if (remote_frame - current_frame - 1) {
-                g_warning ("Frames have been skipped! Now at frame: %ld, skipped %ld previous frame(s).", \
+            //if (remote_frame - current_frame - 1) {
+                //g_message ("Frames have been skipped! Now at frame: %ld, skipped %ld previous frame(s).", \
                  remote_frame, remote_frame - current_frame - 1);
-            }
+            //}
             // Update current_frame counter.
             current_frame = remote_frame;
-            g_warning ("Current Frame: %ld", current_frame);
-            // Receive data.
-            // TODO: Only sync data when in triple buffering
-            kiro_client_sync (kiroClient);
-            // Run kernel on data.
-            identity <<<1, 1>>> (kiro_client_get_memory (kiroClient), kiro_client_get_memory_size (kiroClient), result, result_size);
-            // Wait for kernel to finish.
-            cudaDeviceSynchronize ();
+            //g_message ("Current Frame: %ld", current_frame);
 
-            // Sleep random amount of time.
-            sleep (rand() % 10 / 2);
+            // Receive data.
+            // TODO: triple buffering
+            g_timer_reset (timer);
+            kiro_client_sync (kiroClient);
+            t_host_infiniband += g_timer_elapsed (timer, NULL);
+            // Run kernel on data.
+            g_timer_reset (timer);
+            identity <<<1024, 1024>>> (kiro_client_get_memory (kiroClient), kiro_client_get_memory_size (kiroClient), \
+                result_gpu, result_size);
+            cudaDeviceSynchronize ();
+            t_host_algorithm += g_timer_elapsed (timer, NULL);
+            // Status update over the last iterations.
+            iterate -= 1;
+            if (iterate == 0) {
+                // Print times.
+                float size_gb = ((float) kiro_client_get_memory_size (kiroClient) / (1024.0 * 1024.0 * 1024.0)) * iterations;
+                g_message ("t_host_infiniband: %.2f ms", (t_host_infiniband / iterations) * 1000);
+                g_message ("t_host_algorithm: %.2f ms", (t_host_algorithm / iterations) * 1000);
+
+                // Print throughput.
+                g_message ("Throughput Infiniband: %.2f Gbyte/s", size_gb / t_host_infiniband);
+                g_message ("Throughput Algorithm: %.2f Gbyte/s", size_gb / t_host_algorithm);
+
+                // Reset all counters.
+                iterate = iterations;
+                t_host_infiniband = 0;
+                t_host_algorithm = 0;
+            }
         }
     }
-done:
-    kiro_server_free (kiroServer);
-    return 0;
+
 }

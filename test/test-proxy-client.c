@@ -48,6 +48,10 @@
 int 
 main ( int argc, char *argv[])
 {
+    GTimer *timer = g_timer_new ();
+
+    float t_frame = 0;
+
     unsigned long int frame;
     void *data;
     if (argc < 3) {
@@ -64,6 +68,10 @@ main ( int argc, char *argv[])
     
     unsigned long int current_frame = 0;
 
+    int iterations = 10000;
+
+    int i = iterations;
+
     while (1) {
         // Receive data.
         kiro_client_sync (kiroClient);
@@ -71,10 +79,19 @@ main ( int argc, char *argv[])
         frame = *(unsigned long int *)kiro_client_get_memory (kiroClient);
         // Get data
         data = kiro_client_get_memory (kiroClient) + sizeof (frame);
-
         if (current_frame < frame) {
-            g_warning ("Frame: %ld, Data %d", frame, *(int *)data);
+            t_frame += g_timer_elapsed (timer, NULL);
+            g_timer_reset (timer);
             current_frame = frame;
+            i -= 1;
+            if (i == 0) {
+                i = iterations;
+                float size_gb = ((float) kiro_client_get_memory_size (kiroClient) / (1024.0 * 1024.0 * 1024.0)) * iterations;
+                g_message ("t_frame %f ms", (t_frame / iterations) * 1000);
+                g_message ("Bandwidth %f Gbyte/s", size_gb / t_frame);
+                g_warning ("Frame: %ld, Data %d", frame, *(int *)data);
+                t_frame = 0;
+            }
         }
     }
 }

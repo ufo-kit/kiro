@@ -63,7 +63,7 @@ main ( int argc, char *argv[])
     float t_host_hosttodevice = 0;
     float t_host_algorithm = 0;
     float t_host_devicetohost = 0;
-    const int iterations = 1000;
+    const int iterations = 10000;
     int iterate = iterations;
 
     // Proxy variables
@@ -87,6 +87,8 @@ main ( int argc, char *argv[])
         kiro_client_free (kiroClient);
         return -1;
     }
+    kiro_client_sync (kiroClient);
+
     // Malloc some cuda memory for the kernel input.
     void *input_gpu;
     error = cudaMalloc (&input_gpu, kiro_client_get_memory_size (kiroClient));
@@ -99,7 +101,6 @@ main ( int argc, char *argv[])
     // Malloc some memory for the kernel result.
     void *result_host;
     void *result_gpu;
-    kiro_client_sync (kiroClient);
     size_t result_size = kiro_client_get_memory_size (kiroClient);
     result_host = malloc (result_size);
     error = cudaMalloc (&result_gpu, result_size);

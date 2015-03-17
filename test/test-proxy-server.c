@@ -50,7 +50,7 @@ main (void)
     void *memory; // Pointer to memory
     unsigned long int *frame; // Pointer to framenumber
     void *data; // Pointer to data
-    int data_size = 1024; // Size of data set. Must be multiple of int.
+    int data_size = 512 * 1024 * 256 * sizeof (int); // Size of data set. Must be multiple of int.
     size_t memory_size = sizeof (*frame) + data_size;
 
     // Allocate memory and point pointers to it.
@@ -76,15 +76,16 @@ main (void)
         int *offset;
         for (i = 0; i < data_size; i += sizeof (int)) {
             offset = data + i;
-            *offset = rand();
+            *offset = i;
+            //rand();
         }
         // Sleep to fake realtime camera.
-        sleep (rand() % 10 / 2);
+        //sleep (rand() % 10 / 2);
 
         // Increment frame count.
         *frame += 1;
 
-        g_warning ("Frame: %ld, Data: %d", *frame, *(int *)data);
+        //g_warning ("Frame: %ld, Data: %d", *frame, *(int *)data);
     }
 done:
     kiro_server_free (kiroServer);

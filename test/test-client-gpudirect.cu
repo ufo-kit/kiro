@@ -75,7 +75,7 @@ main ( int argc, char *argv[])
 
     GTimer *timer = g_timer_new ();
 
-    const int iterations = 10;
+    const int iterations = 10000;
 
     float t_host_infiniband = 0;
     float t_host_hosttodevice = 0;
@@ -166,6 +166,7 @@ main ( int argc, char *argv[])
     // Transfer data 1000 times to get average througput.
     void *gpu_mem;
     void *host_mem_2 = malloc (kiro_client_get_memory_size (client_host));
+        cudaError_t error = cudaMalloc (&gpu_mem, kiro_client_get_memory_size (client_host));
     for (int i = 0; i < iterations; i++) {
         // Receive data from server into host memory.
         g_timer_reset (timer);
@@ -174,7 +175,6 @@ main ( int argc, char *argv[])
         t_host_infiniband += g_timer_elapsed (timer, NULL);
         
         // Copy memory from host to gpu memory.
-        cudaError_t error = cudaMalloc (&gpu_mem, kiro_client_get_memory_size (client_host));
         g_timer_reset (timer);
         error = cudaMemcpy (gpu_mem, kiro_client_get_memory (client_host), \
             kiro_client_get_memory_size (client_host), cudaMemcpyHostToDevice);
