@@ -73,11 +73,16 @@ GPUdirect
 
 To compile with GPUdirect run cmake with -DGPUDIRECT=ON flag. Example usage is shown in test/test-client-gpudirect.cu and test/test-server-gpudirect.c.
 
+
 Tested with:
 ----------
-* Tesla K40
-* Ubuntu 14.04
-* Kernel 3.13.0-32-generic
+* NVIDIA Tesla K40c
+* Mellanox ConnectX-3 MT27500
+* Supermicro X10SRi-F
+* Intel® C612 chipset
+* Intel® Xeon® CPU E5-1630 v3 @ 3.70GHz
+* Fedora 21
+* Kernel 3.17.4-301.fc21.x86_64
 * Cuda 6.5  ([https://developer.nvidia.com/cuda-downloads](https://developer.nvidia.com/cuda-downloads))
 * nvidia driver 340.29 (comes with cuda)
 * mlnx\_ofed ([http://www.mellanox.com/page/products_dyn?product_family=26](http://www.mellanox.com/page/products_dyn?product_family=26))
@@ -86,13 +91,10 @@ Tested with:
 Issues:
 ----------
 
-* Pointers to device memory may be stale. To inspect device memory data has to be copied with cudaMemcpy from device to host.
 * Sometimes the nvidia driver crashes during boot. 
     * Solution: grep for "Oops" in dmesg and reboot if that happens.
 * Sometimes mlx4\_core driver is not assigned to the mellanox card.
     * Solution: Find out device number of mellanox card with lspci (e.g. 3) and run:
-
-
 ---        
     echo "1" > /sys/bus/pci/devices/0000\:03\:00.0/remove
     echo "1" > /sys/bus/pci/rescan
