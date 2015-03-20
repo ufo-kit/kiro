@@ -95,6 +95,8 @@ Issues:
     * Solution: grep for "Oops" in dmesg and reboot if that happens.
 * Sometimes mlx4\_core driver is not assigned to the mellanox card.
     * Solution: Find out device number of mellanox card with lspci (e.g. 3) and run:
+
+
 ---        
     echo "1" > /sys/bus/pci/devices/0000\:03\:00.0/remove
     echo "1" > /sys/bus/pci/rescan
