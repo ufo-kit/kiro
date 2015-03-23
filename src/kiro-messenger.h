@@ -82,6 +82,7 @@ struct _KiroMessengerClass {
 struct KiroMessage {
     enum KiroMessageStatus status; // Status of the message
     guint64     id;           // Unique ID of the message. This may not be changed by the user
+    guint32     msg;          // Space for application specific message semantics 
     guint64     size;         // Size of the messages payload in bytes
     gpointer    payload;      // Pointer to the payload of the message
     gboolean    message_handled; // FALSE initially, TRUE once the message was handled
@@ -126,7 +127,7 @@ void         kiro_messenger_free                (KiroMessenger *messenger);
  * @bind_addr: Local address to bind the messenger to
  * @bind_port: Local port to listen for connections
  * @role: A #KiroMessengerType which is used to decide the role of this
- * messenger 
+ * messenger
  * Returns: An integer denoting success of this function. 0 for success, -1
  * otherwise
  * Description:
@@ -224,7 +225,7 @@ gboolean kiro_messenger_remove_receive_callback (KiroMessenger *messenger, gulon
  *   A pointer to the message that has been sent will be passed to all
  *   registered callbacks one by one. The message container and all of its data
  *   will not be feed after all callbacks have been invoked. The user
- *   implementation needs to take care of this. 
+ *   implementation needs to take care of this.
  * See also:
  *   kiro_messenger_remove_send_callback
  */
