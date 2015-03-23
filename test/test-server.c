@@ -161,7 +161,7 @@ print_current_frame (gchar *buffer, guint number, guint width, guint height, GRa
 }
 
 
-int 
+int
 main (void)
 {
     KiroServer *server = kiro_server_new ();
