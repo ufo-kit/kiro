@@ -4,6 +4,7 @@
 #include <string.h>
 #include <kiro-messenger.h>
 #include <assert.h>
+#include <unistd.h>
 
 gboolean
 grab_message (struct KiroMessage *msg, gpointer user_data)
@@ -12,6 +13,19 @@ grab_message (struct KiroMessage *msg, gpointer user_data)
     g_message ("Message received! Content: %s", (gchar *)(msg->payload));
     msg->message_handled = TRUE;
     return TRUE;
+}
+
+
+gboolean
+message_was_sent (struct KiroMessage *msg, gpointer user_data)
+{
+    gboolean *flag = (gboolean *)user_data;
+    if (msg->status == KIRO_MESSAGE_SEND_SUCCESS)
+        g_message ("Message was sent successfully");
+    else
+        g_message ("Message sending failed");
+    *flag = TRUE;
+    return FALSE;
 }
 
 
@@ -60,11 +74,15 @@ main ( int argc, char *argv[] )
         GString *str = g_string_new (argv[2]);
         msg.payload = str->str;
         msg.size = str->len + 1; // respect the NULL byte
-        if (0 > kiro_messenger_send_message (messenger, &msg))
+
+        gboolean can_leave = FALSE;
+        kiro_messenger_add_send_callback (messenger, (KiroMessengerCallbackFunc*)(message_was_sent), &can_leave);
+
+        if (0 > kiro_messenger_submit_message (messenger, &msg, TRUE))
             printf ("Sending failed...");
         else
             printf ("Message submitted successfully\n");
-        sleep (3);
+        while (!can_leave) {}
     }
     else {
         kiro_messenger_add_receive_callback (messenger, (KiroMessengerCallbackFunc*)(grab_message), NULL);

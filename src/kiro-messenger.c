@@ -70,6 +70,7 @@ struct _KiroMessengerPrivate {
     struct pending_message      *message;        // Keep all outstanding RDMA message MRs
 
     GHookList                   rec_callbacks;   // List of all receive callbacks
+    GHookList                   send_callbacks;  // List of all send callbacks
 };
 
 
@@ -79,6 +80,7 @@ struct pending_message {
         KIRO_MESSAGE_RECEIVE
     } direction;
     guint32 handle;
+    gboolean message_is_mine;
     struct KiroMessage *msg;
     struct kiro_rdma_mem *rdma_mem;
 };
@@ -111,6 +113,7 @@ kiro_messenger_init (KiroMessenger *self)
     KiroMessengerPrivate *priv = KIRO_MESSENGER_GET_PRIVATE (self);
     memset (priv, 0, sizeof (&priv));
     g_hook_list_init (&(priv->rec_callbacks), sizeof (GHook));
+    g_hook_list_init (&(priv->send_callbacks), sizeof (GHook));
 }
 
 
@@ -317,6 +320,9 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
             if (priv->message) {
                 g_debug ("But only one pending message is allowed");
             }
+            else if (!priv->rec_callbacks.hooks) {
+                g_debug ("But noone if listening for any messages");
+            }
             else {
                 rdma_data_in = kiro_create_rdma_memory (conn->pd, msg_in->peer_mri.length, \
                                                        IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE);
@@ -351,6 +357,32 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
             }
             g_debug ("RDMA message reply sent to peer");
             break;
+        }
+        case KIRO_REJ_RDMA:
+        {
+            g_debug ("Message '%u' was rejected by the peer", msg_in->peer_mri.handle);
+            if (priv->message->handle != msg_in->peer_mri.handle) {
+                g_debug ("Reply is for the wrong message...");
+                //
+                //TODO: Cancel the current message transfer? Or do nothing?
+                //
+                goto done;
+            }
+            else {
+                g_debug ("Cleaning up pending message ...");
+                priv->message->rdma_mem->mem = NULL; // mem points to the original message data! DON'T FREE IT JUST YET!
+                kiro_destroy_rdma_memory (priv->message->rdma_mem);
+                priv->message->msg->status = KIRO_MESSAGE_SEND_FAILED;
+                g_hook_list_marshal_check (&(priv->send_callbacks), FALSE, invoke_callbacks, priv->message->msg);
+                if (priv->message->message_is_mine && !priv->message->msg->message_handled) {
+                    g_debug ("Message is owned by the messenger and noone wants to handle it. Cleaning it up...");
+                    g_free (priv->message->msg->payload);
+                    g_free (priv->message->msg);
+                }
+                g_free (priv->message);
+                priv->message = NULL;
+                break;
+            }
         }
         case KIRO_ACK_RDMA:
         {
@@ -417,12 +449,18 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
 
             cleanup:
                 g_debug ("Cleaning up pending message ...");
-                priv->message->rdma_mem->mem = NULL; // mem points to the original message data! DON'T FREE IT!
+                priv->message->rdma_mem->mem = NULL; // mem points to the original message data! DON'T FREE IT JUST YET!
                 kiro_destroy_rdma_memory (priv->message->rdma_mem);
+                g_hook_list_marshal_check (&(priv->send_callbacks), FALSE, invoke_callbacks, priv->message->msg);
+                if (priv->message->message_is_mine && !priv->message->msg->message_handled) {
+                    g_debug ("Message is owned by the messenger and noone wants to handle it. Cleaning it up...");
+                    g_free (priv->message->msg->payload);
+                    g_free (priv->message->msg);
+                }
                 g_free (priv->message);
                 priv->message = NULL;
                 //
-                //TODO: Inform the peer about the failed send?
+                //TODO: Inform the peer about failed send?
                 //
                 break; //case KIRO_ACK_RDMA:
         }
@@ -763,7 +801,7 @@ fail:
 
 
 int
-kiro_messenger_send_message (KiroMessenger *self, struct KiroMessage *msg)
+kiro_messenger_submit_message (KiroMessenger *self, struct KiroMessage *msg, gboolean take_ownership)
 {
     g_return_val_if_fail (self != NULL, -1);
     KiroMessengerPrivate *priv = KIRO_MESSENGER_GET_PRIVATE (self);
@@ -800,6 +838,7 @@ kiro_messenger_send_message (KiroMessenger *self, struct KiroMessage *msg)
 
     struct pending_message *pm = (struct pending_message *)g_malloc0(sizeof (struct pending_message));
     pm->direction = KIRO_MESSAGE_SEND;
+    pm->message_is_mine = take_ownership;
     pm->msg = msg;
     pm->handle = priv->msg_id++;
     pm->rdma_mem = rdma_out;
@@ -844,6 +883,30 @@ kiro_messenger_remove_receive_callback (KiroMessenger *self, gulong hook_id)
     KiroMessengerPrivate *priv = KIRO_MESSENGER_GET_PRIVATE (self);
 
     return g_hook_destroy (&(priv->rec_callbacks), hook_id);
+}
+
+
+gulong
+kiro_messenger_add_send_callback (KiroMessenger *self, KiroMessengerCallbackFunc *func, void *user_data)
+{
+    g_return_val_if_fail (self != NULL, 0);
+    KiroMessengerPrivate *priv = KIRO_MESSENGER_GET_PRIVATE (self);
+
+    GHook *new_hook = g_hook_alloc (&(priv->send_callbacks));
+    new_hook->data = user_data;
+    new_hook->func = (GHookCheckFunc)func;
+    g_hook_append (&(priv->send_callbacks), new_hook);
+    return new_hook->hook_id;
+}
+
+
+gboolean
+kiro_messenger_remove_send_callback (KiroMessenger *self, gulong hook_id)
+{
+    g_return_val_if_fail (self != NULL, FALSE);
+    KiroMessengerPrivate *priv = KIRO_MESSENGER_GET_PRIVATE (self);
+
+    return g_hook_destroy (&(priv->send_callbacks), hook_id);
 }
 
 

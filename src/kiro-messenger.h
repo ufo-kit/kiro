@@ -167,8 +167,13 @@ int kiro_messenger_start (KiroMessenger *messenger, const char *bind_addr, const
  *   it has taken the messages content and set the "payload" pointer in the
  *   message struct to %NULL. Otherweise, the messages payload will be freed
  *   once all callbacks were invoked.
+ *   In case of a send callback, the message payload will only be freed if the
+ *   'take_ownership' flag in the 'kiro_messenger_submit_message' was set to
+ *   %TRUE. If the flag was set to %FALSE, the "message_handled" flag is ignored
+ *   by the callback mechanism and the message payload will never be freed.
  *   If the callback receives a message which already has the "message_handled"
  *   flag set, it can safely ignore the message and just return.
+ *   A callback may under no circumstances free the given message construct.
  * See also:
  *   kiro_messenger_add_receive_callback, kiro_messenger_remove_receive_callback,
  *   kiro_messenger_add_send_callback, kiro_messenger_remove_send_callback
@@ -182,7 +187,7 @@ typedef KiroContinueFlag (*KiroMessengerCallbackFunc)   (struct KiroMessage *mes
  * @callback: Pointer to a #KiroReceiveCallbackFunc that will be invoked when a
  * messege is received
  * @user_data: Pointer to user data that will be passed to the callback function
- * Returns: Integer ID of the registered callback. 0 in case of error
+ * Returns: Integer ID of the registered callback.
  * Description:
  *   Registers the given callback function to be invoked every time the
  *   messenger receives a message.
@@ -211,40 +216,63 @@ gboolean kiro_messenger_remove_receive_callback (KiroMessenger *messenger, gulon
  * @callback: Pointer to a #KiroSendCallbackFunc that will be invoked when a
  * messege was sent
  * @user_data: Pointer to user data that will be passed to the callback function
- * Returns: Integer ID of the registered callback. -1 in case of error
+ * Returns: Integer ID of the registered callback.
  * Description:
  *   Registers the given callback function to be invoked every time the
- *   messenger has sent a message
+ *   messenger has sent a message.
+ * Note:
+ *   A pointer to the message that has been sent will be passed to all
+ *   registered callbacks one by one. The message container and all of its data
+ *   will not be feed after all callbacks have been invoked. The user
+ *   implementation needs to take care of this. 
  * See also:
  *   kiro_messenger_remove_send_callback
  */
-//int kiro_messenger_add_send_callback (KiroMessenger *messenger, KiroMessengerCallbackFunc *callback, void *user_data);
+gulong kiro_messenger_add_send_callback (KiroMessenger *messenger, KiroMessengerCallbackFunc *callback, void *user_data);
 
 /**
  * kiro_messenger_remove_send_callback - Removes a previously registered
  * callback
  * @messenger: #KiroMessenger to perform this operation on
  * @callback_id: ID of the callback that should be removed
- * Returns: 0 on success -1 in case of error
+ * Returns: %TRUE on success %FALSE in case of error
  * Description:
  *   Removes the callback with the given ID.
  * See also:
  *   kiro_messenger_send_receive_callback
  */
-//int kiro_messenger_remove_send_callback (KiroMessenger *messenger, int callback_id);
+gboolean kiro_messenger_remove_send_callback (KiroMessenger *messenger, gulong callback_id);
 
 /**
- * kiro_messenger_send - send the given message to the remote side
+ * kiro_messenger_submit_message - send the given message to the remote side
  * @messenger: #KiroMessenger to use for sending the message
  * @message: Pointer to a #KiroMessage for sending
+ * @take_ownership: Decide if the messenger will take ownership of the messag
+ * data or the ownership should stay with the caller.
  * Returns: 0 on success, -1 in case of error
  * Description:
  *   Sends the given #KiroMessage to the remote side. The 'status' field of the
  *   #KiroMessage struct will be set to KIRO_MESSAGE_SEND_SUCCESS, once the
  *   message has been sent successfully, or to KIRO_MESSAGE_SEND_FAILED in case
  *   of an error.
+ *   If the @take_ownership flag was set to %TRUE, the KiroMessenger will take
+ *   ownership of the KiroMessage struct. It will then attempt to free it,
+ *   including the message payload, after the message was sent, in accordance to
+ *   the status of the "message_handled" flag of the created message, after all
+ *   send callbacks have returned.  This mechanism can be used to realize a
+ *   fire-and-forget mechanism where the user can be sure the message will be
+ *   cleaned up automatically after it has been sent. If the @take_ownership is
+ *   set to %FALSE, the KiroMessenger will not take ownership of the message and
+ *   the message and its payload will not be freed after the callbacks have been
+ *   invoked, regardles of the "message_handled" flag. The caller stays
+ *   responsible to clean up the message sooner or later.
+ * Note:
+ *   After the message was sent to the remote side, all of the registeres send
+ *   callbacks will be invoked, regardless if the message was sent successfully
+ *   or not. The status field in the message struct can be checked to see if the
+ *   message was sent successfully.
  */
-int kiro_messenger_send_message (KiroMessenger *messenger, struct KiroMessage *message);
+int kiro_messenger_submit_message (KiroMessenger *messenger, struct KiroMessage *message, gboolean take_ownership);
 
 /**
  * kiro_messenger_stop - Stops the messenger
