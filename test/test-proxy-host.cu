@@ -17,14 +17,14 @@
  */
 
 /**
- * SECTION: test-proxy-gpudirect
- * @short_description: KIRO GPUDIRECT test proxy
- * @title: GPUDIRECTproxy
- * @filename: test-proxy-gpudirect.c
+ * SECTION: test-proxy-host
+ * @short_description: KIRO GPUDIRECT test proxy host
+ * @title: GPUDIRECTproxyhost
+ * @filename: test-proxy-host.cu
  *
- * GPUDIRECTclient receives data from infiniband, runs one or multiple cuda 
- * kernels on the data and provides the data via server. Receiving and
- * serving data both work via GPUDirect.
+ * GPUDIRECTclient receives data from infiniband, runs a cuda kernel
+ * on the data and provides the data via server. No GPUDirect data path is
+ * used to benchmark differences to the GPUDirect case.
  * 
  **/
 
@@ -41,6 +41,7 @@
 #include "kiro-server.h"
 #include <glib.h>
 #include "kernels/identity.cu"
+#include "kernels/twice.cu"
 
 
 /**
@@ -144,7 +145,7 @@ main ( int argc, char *argv[])
             t_host_hosttodevice += g_timer_elapsed (timer, NULL);
             // Run kernel on data.
             g_timer_reset (timer);
-            identity <<<1024, 1024>>> (input_gpu, kiro_client_get_memory_size (kiroClient), \
+            twice <<<(kiro_client_get_memory_size (kiroClient) - sizeof (unsigned long int)) / 1024, 1024>>> (input_gpu, kiro_client_get_memory_size (kiroClient), \
                 result_gpu, result_size);
             cudaDeviceSynchronize ();
             t_host_algorithm += g_timer_elapsed (timer, NULL);

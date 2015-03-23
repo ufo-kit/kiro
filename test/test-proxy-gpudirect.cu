@@ -19,11 +19,11 @@
 /**
  * SECTION: test-proxy-gpudirect
  * @short_description: KIRO GPUDIRECT test proxy
- * @title: GPUDIRECTproxy
- * @filename: test-proxy-gpudirect.c
+ * @title: GPUDIRECTproxygpudirect
+ * @filename: test-proxy-gpudirect.cu
  *
- * GPUDIRECTclient receives data from infiniband, runs one or multiple cuda 
- * kernels on the data and provides the data via server. Receiving and
+ * GPUDIRECTproxygpudirect receives data from infiniband, runs a cuda kernel
+ * on the data and provides the data via server. Receiving and
  * serving data both work via GPUDirect.
  * 
  **/
@@ -41,6 +41,7 @@
 #include "kiro-server.h"
 #include <glib.h>
 #include "kernels/identity.cu"
+#include "kernels/twice.cu"
 
 
 /**
@@ -113,23 +114,16 @@ main ( int argc, char *argv[])
         }
         // Check if new data (e.g. new Image) is ready.
         if (remote_frame > current_frame) {
-            // Tell user if frames have been skipped.
-            //if (remote_frame - current_frame - 1) {
-                //g_message ("Frames have been skipped! Now at frame: %ld, skipped %ld previous frame(s).", \
-                 remote_frame, remote_frame - current_frame - 1);
-            //}
             // Update current_frame counter.
             current_frame = remote_frame;
-            //g_message ("Current Frame: %ld", current_frame);
 
             // Receive data.
-            // TODO: triple buffering
             g_timer_reset (timer);
             kiro_client_sync (kiroClient);
             t_host_infiniband += g_timer_elapsed (timer, NULL);
             // Run kernel on data.
             g_timer_reset (timer);
-            identity <<<1024, 1024>>> (kiro_client_get_memory (kiroClient), kiro_client_get_memory_size (kiroClient), \
+            twice <<<(kiro_client_get_memory_size (kiroClient) - sizeof (unsigned long int)) / 1024, 1024>>> (kiro_client_get_memory (kiroClient), kiro_client_get_memory_size (kiroClient), \
                 result_gpu, result_size);
             cudaDeviceSynchronize ();
             t_host_algorithm += g_timer_elapsed (timer, NULL);

@@ -17,15 +17,13 @@
  */
 
 /**
- * TODO: fixme
- * SECTION: test-proxy-gpudirect
- * @short_description: KIRO GPUDIRECT test proxy
- * @title: GPUDIRECTproxy
- * @filename: test-proxy-gpudirect.c
+ * SECTION: test-proxy-client
+ * @short_description: KIRO GPUDIRECT test proxy client
+ * @title: GPUDIRECTproxyclient
+ * @filename: test-proxy-client.c
  *
- * GPUDIRECTclient receives data from infiniband, runs one or multiple cuda 
- * kernels on the data and provides the data via server. Receiving and
- * serving data both work via GPUDirect.
+ * GPUDIRECTclient receives data from either GPUDirect or Host proxy and benchmarks
+ * transfer time.
  * 
  **/
 

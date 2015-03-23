@@ -22,8 +22,8 @@
  * @title: GPUDIRECTproxyserver
  * @filename: test-proxy-server.c
  *
- * Simulates a detector, that has new data ready in random intervals (e.g. ANKA
- * camera).
+ * Simulates a detector that has new data ready and provides them for 
+ * infiniband RDMA.
  * 
  **/
 

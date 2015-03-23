@@ -166,7 +166,11 @@ main ( int argc, char *argv[])
     // Transfer data 1000 times to get average througput.
     void *gpu_mem;
     void *host_mem_2 = malloc (kiro_client_get_memory_size (client_host));
-        cudaError_t error = cudaMalloc (&gpu_mem, kiro_client_get_memory_size (client_host));
+    cudaError_t error = cudaMalloc (&gpu_mem, kiro_client_get_memory_size (client_host));
+    if (error != 0) {
+        g_message ("Cuda error: %s \n", cudaGetErrorString(error));
+        return -1;
+    }
     for (int i = 0; i < iterations; i++) {
         // Receive data from server into host memory.
         g_timer_reset (timer);
