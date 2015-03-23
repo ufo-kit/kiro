@@ -10,7 +10,7 @@ gboolean
 grab_message (struct KiroMessage *msg, gpointer user_data)
 {
     (void)user_data;
-    g_message ("Message received! Content: %s", (gchar *)(msg->payload));
+    g_message ("Message received! Type: %u, Content: %s", msg->msg, (gchar *)(msg->payload));
     msg->message_handled = TRUE;
     return TRUE;
 }
@@ -72,6 +72,7 @@ main ( int argc, char *argv[] )
     if (type == KIRO_MESSENGER_CLIENT) {
         struct KiroMessage msg;
         GString *str = g_string_new (argv[2]);
+        msg.msg = 42;
         msg.payload = str->str;
         msg.size = str->len + 1; // respect the NULL byte
 

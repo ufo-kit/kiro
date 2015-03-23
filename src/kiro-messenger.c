@@ -231,12 +231,31 @@ error:
 
 
 static inline gboolean
-send_msg (struct rdma_cm_id *id, struct kiro_rdma_mem *r)
+send_msg (struct rdma_cm_id *id, struct kiro_rdma_mem *r, uint32_t imm_data)
 {
     gboolean retval = TRUE;
     G_LOCK (send_lock);
     g_debug ("Sending message");
-    if (rdma_post_send (id, id, r->mem, r->size, r->mr, IBV_SEND_SIGNALED)) {
+
+    struct ibv_sge sge;
+
+	sge.addr = (uint64_t) (uintptr_t) r->mem;
+	sge.length = (uint32_t) r->size;
+	sge.lkey = r->mr ? r->mr->lkey : 0;
+
+
+	struct ibv_send_wr wr, *bad;
+
+	wr.wr_id = (uintptr_t) id;
+	wr.next = NULL;
+	wr.sg_list = &sge;
+	wr.num_sge = 1;
+	wr.opcode = IBV_WR_SEND_WITH_IMM;
+	wr.send_flags = IBV_SEND_SIGNALED;
+    wr.imm_data = htonl (imm_data); // Needs to be network byte order
+
+
+    if (ibv_post_send (id->qp, &wr, &bad)) {
         retval = FALSE;
     }
     else {
@@ -301,7 +320,7 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
             struct kiro_ctrl_msg *msg = (struct kiro_ctrl_msg *) (ctx->cf_mr_send->mem);
             msg->msg_type = KIRO_PONG;
 
-            if (!send_msg (conn, ctx->cf_mr_send)) {
+            if (!send_msg (conn, ctx->cf_mr_send, 0)) {
                 g_warning ("Failure while trying to post PONG send: %s", strerror (errno));
                 goto done;
             }
@@ -342,6 +361,7 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
                     pm->msg = (struct KiroMessage *)g_malloc0 (sizeof (struct KiroMessage));
                     pm->msg->status = KIRO_MESSAGE_PENDING;
                     pm->msg->id = msg_in->peer_mri.handle;
+                    pm->msg->msg = ntohl (wc.imm_data); //is in network byte order
                     pm->msg->size = msg_in->peer_mri.length;
                     pm->msg->payload = rdma_data_in->mem;
                     pm->msg->message_handled = FALSE;
@@ -350,7 +370,7 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
                 }
             }
 
-            if (0 > send_msg (conn, ctx->cf_mr_send)) {
+            if (0 > send_msg (conn, ctx->cf_mr_send, 0)) {
                 g_critical ("Failed to send RDMA credentials to peer!");
                 if (rdma_data_in)
                     kiro_destroy_rdma_memory (rdma_data_in);
@@ -435,7 +455,7 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
             else
                 msg_out->msg_type = KIRO_RDMA_CANCEL;
 
-            if (0 > send_msg (conn, ctx->cf_mr_send)) {
+            if (0 > send_msg (conn, ctx->cf_mr_send, 0)) {
                 //
                 //TODO: If this ever happens, the peer will be in an undefined
                 //state. We don't know if the peer has already cleared our
@@ -849,7 +869,7 @@ kiro_messenger_submit_message (KiroMessenger *self, struct KiroMessage *msg, gbo
     req->peer_mri.length = msg->size;
     req->peer_mri.handle = pm->handle;
 
-    if (0 > send_msg (conn, ctx->cf_mr_send)) {
+    if (0 > send_msg (conn, ctx->cf_mr_send, msg->msg)) {
         //
         //TODO
         //
