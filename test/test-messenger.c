@@ -77,7 +77,7 @@ main ( int argc, char *argv[] )
         msg.size = str->len + 1; // respect the NULL byte
 
         gboolean can_leave = FALSE;
-        kiro_messenger_add_send_callback (messenger, (KiroMessengerCallbackFunc*)(message_was_sent), &can_leave);
+        kiro_messenger_add_send_callback (messenger, message_was_sent, &can_leave);
 
         if (0 > kiro_messenger_submit_message (messenger, &msg, TRUE))
             printf ("Sending failed...");
@@ -86,7 +86,7 @@ main ( int argc, char *argv[] )
         while (!can_leave) {}
     }
     else {
-        kiro_messenger_add_receive_callback (messenger, (KiroMessengerCallbackFunc*)(grab_message), NULL);
+        kiro_messenger_add_receive_callback (messenger, grab_message, NULL);
         while (1) {sleep (1);}
     }
 

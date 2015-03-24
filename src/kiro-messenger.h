@@ -195,7 +195,7 @@ typedef KiroContinueFlag (*KiroMessengerCallbackFunc)   (struct KiroMessage *mes
  * See also:
  *   kiro_messenger_remove_receive_callback
  */
-gulong kiro_messenger_add_receive_callback (KiroMessenger *messenger, KiroMessengerCallbackFunc *callback, void *user_data);
+gulong kiro_messenger_add_receive_callback (KiroMessenger *messenger, KiroMessengerCallbackFunc callback, void *user_data);
 
 /**
  * kiro_messenger_remove_receive_callback - Removes a previously registered
@@ -229,7 +229,7 @@ gboolean kiro_messenger_remove_receive_callback (KiroMessenger *messenger, gulon
  * See also:
  *   kiro_messenger_remove_send_callback
  */
-gulong kiro_messenger_add_send_callback (KiroMessenger *messenger, KiroMessengerCallbackFunc *callback, void *user_data);
+gulong kiro_messenger_add_send_callback (KiroMessenger *messenger, KiroMessengerCallbackFunc callback, void *user_data);
 
 /**
  * kiro_messenger_remove_send_callback - Removes a previously registered
