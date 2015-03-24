@@ -883,7 +883,7 @@ fail:
 
 
 gulong
-kiro_messenger_add_receive_callback (KiroMessenger *self, KiroMessengerCallbackFunc *func, void *user_data)
+kiro_messenger_add_receive_callback (KiroMessenger *self, KiroMessengerCallbackFunc func, void *user_data)
 {
     g_return_val_if_fail (self != NULL, 0);
     KiroMessengerPrivate *priv = KIRO_MESSENGER_GET_PRIVATE (self);
@@ -907,7 +907,7 @@ kiro_messenger_remove_receive_callback (KiroMessenger *self, gulong hook_id)
 
 
 gulong
-kiro_messenger_add_send_callback (KiroMessenger *self, KiroMessengerCallbackFunc *func, void *user_data)
+kiro_messenger_add_send_callback (KiroMessenger *self, KiroMessengerCallbackFunc func, void *user_data)
 {
     g_return_val_if_fail (self != NULL, 0);
     KiroMessengerPrivate *priv = KIRO_MESSENGER_GET_PRIVATE (self);
