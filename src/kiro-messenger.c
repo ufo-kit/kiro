@@ -71,6 +71,9 @@ struct _KiroMessengerPrivate {
 
     GHookList                   rec_callbacks;   // List of all receive callbacks
     GHookList                   send_callbacks;  // List of all send callbacks
+
+    GMutex                      connection_handling;
+    GMutex                      rdma_handling;
 };
 
 
@@ -114,6 +117,8 @@ kiro_messenger_init (KiroMessenger *self)
     memset (priv, 0, sizeof (&priv));
     g_hook_list_init (&(priv->rec_callbacks), sizeof (GHook));
     g_hook_list_init (&(priv->send_callbacks), sizeof (GHook));
+    g_mutex_init (&priv->connection_handling);
+    g_mutex_init (&priv->rdma_handling);
 }
 
 
@@ -124,6 +129,10 @@ kiro_messenger_finalize (GObject *object)
     KiroMessenger *self = KIRO_MESSENGER (object);
     //Clean up the server
     kiro_messenger_stop (self);
+
+    KiroMessengerPrivate *priv = KIRO_MESSENGER_GET_PRIVATE (self);
+    g_mutex_clear (&priv->connection_handling);
+    g_mutex_clear (&priv->rdma_handling);
 
     G_OBJECT_CLASS (kiro_messenger_parent_class)->finalize (object);
 }
@@ -137,13 +146,6 @@ kiro_messenger_class_init (KiroMessengerClass *klass)
     gobject_class->finalize = kiro_messenger_finalize;
     g_type_class_add_private (klass, sizeof (KiroMessengerPrivate));
 }
-
-
-
-/// MESSENGER SPECIFIC IMPLEMENTATIONS ///
-G_LOCK_DEFINE (send_lock);
-G_LOCK_DEFINE (rdma_handling);
-G_LOCK_DEFINE (connection_handling);
 
 
 gboolean
@@ -234,7 +236,6 @@ static inline gboolean
 send_msg (struct rdma_cm_id *id, struct kiro_rdma_mem *r, uint32_t imm_data)
 {
     gboolean retval = TRUE;
-    G_LOCK (send_lock);
     g_debug ("Sending message");
 
     struct ibv_sge sge;
@@ -265,8 +266,6 @@ send_msg (struct rdma_cm_id *id, struct kiro_rdma_mem *r, uint32_t imm_data)
         }
         g_debug ("WC Status: %i", wc.status);
     }
-
-    G_UNLOCK (send_lock);
     return retval;
 }
 
@@ -277,14 +276,14 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
     // Right now, we don't need 'source'
     // Tell the compiler to ignore it by (void)-ing it
     (void) source;
+    KiroMessengerPrivate *priv = (KiroMessengerPrivate *)data;
 
-    if (!G_TRYLOCK (rdma_handling)) {
+    if (!g_mutex_trylock (&priv->rdma_handling)) {
         g_debug ("RDMA handling will wait for the next dispatch.");
         return TRUE;
     }
 
     g_debug ("Got message on condition: %i", condition);
-    KiroMessengerPrivate *priv = (KiroMessengerPrivate *)data;
     struct rdma_cm_id *conn = NULL;
     if (priv->type == KIRO_MESSENGER_SERVER)
         conn = priv->client;
@@ -523,7 +522,7 @@ done:
     g_debug ("Finished RDMA event handling");
 
 end_rmda_eh:
-    G_UNLOCK (rdma_handling);
+    g_mutex_unlock (&priv->rdma_handling);
     return TRUE;
 }
 
@@ -535,16 +534,16 @@ process_cm_event (GIOChannel *source, GIOCondition condition, gpointer data)
     // Tell the compiler to ignore them by (void)-ing them
     (void) source;
     (void) condition;
+    KiroMessengerPrivate *priv = (KiroMessengerPrivate *)data;
 
     g_debug ("CM event handler triggered");
-    if (!G_TRYLOCK (connection_handling)) {
+    if (!g_mutex_trylock (&priv->connection_handling)) {
         // Unsafe to handle connection management right now.
         // Wait for next dispatch.
         g_debug ("Connection handling is busy. Waiting for next dispatch");
         return TRUE;
     }
 
-    KiroMessengerPrivate *priv = (KiroMessengerPrivate *)data;
     struct rdma_cm_event *active_event;
 
     if (0 <= rdma_get_cm_event (priv->ec, &active_event)) {
@@ -668,7 +667,7 @@ exit:
         g_free (ev);
     }
 
-    G_UNLOCK (connection_handling);
+    g_mutex_unlock (&priv->connection_handling);
     g_debug ("CM event handling done");
     return TRUE;
 }
@@ -719,7 +718,7 @@ kiro_messenger_start (KiroMessenger *self, const char *address, const char *port
     }
     g_debug ("Endpoint created");
 
-    G_LOCK (connection_handling);
+    g_mutex_lock (&priv->connection_handling);
     priv->type = role;
     priv->ec = rdma_create_event_channel ();
 
@@ -801,7 +800,7 @@ kiro_messenger_start (KiroMessenger *self, const char *address, const char *port
     // any longer
     g_io_channel_unref (priv->conn_ec);
 
-    G_UNLOCK (connection_handling);
+    g_mutex_unlock (&priv->connection_handling);
     return 0;
 
 fail:
@@ -815,7 +814,7 @@ fail:
     kiro_destroy_connection_context (&ctx);
     rdma_destroy_ep (priv->conn);
     priv->conn = NULL;
-    G_UNLOCK (connection_handling);
+    g_mutex_unlock (&priv->connection_handling);
     return -1;
 }
 
