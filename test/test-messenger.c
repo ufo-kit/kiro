@@ -9,9 +9,10 @@
 gboolean
 grab_message (struct KiroMessage *msg, gpointer user_data)
 {
-    (void)user_data;
+    gboolean *flag = (gboolean *)user_data;
     g_message ("Message received! Type: %u, Content: %s", msg->msg, (gchar *)(msg->payload));
     msg->message_handled = TRUE;
+    *flag = TRUE;
     return TRUE;
 }
 
@@ -84,10 +85,22 @@ main ( int argc, char *argv[] )
         else
             printf ("Message submitted successfully\n");
         while (!can_leave) {}
+        can_leave = FALSE;
+        kiro_messenger_add_receive_callback (messenger, grab_message, &can_leave);
+        while (!can_leave) {}
     }
     else {
-        kiro_messenger_add_receive_callback (messenger, grab_message, NULL);
-        while (1) {sleep (1);}
+        gboolean answer = FALSE;
+        kiro_messenger_add_receive_callback (messenger, grab_message, &answer);
+        while (1) {
+            while (!answer) {};
+            struct KiroMessage *msg = g_malloc0 (sizeof (struct KiroMessage));
+            msg->msg = 1337;
+            msg->payload = g_strdup ("Echo");
+            msg->size = 5; // respect the NULL byte
+            kiro_messenger_submit_message (messenger, msg, TRUE);
+            answer = FALSE;
+        }
     }
 
     kiro_messenger_free (messenger);

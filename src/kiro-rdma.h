@@ -72,6 +72,8 @@ struct kiro_connection_context {
 struct kiro_ctrl_msg {
 
     enum {
+        KIRO_MSG_STUB,                              // Message without payload (only immediate data)
+        KIRO_ACK_MSG,                               // ACK for messages with no followup (only immediate data)
         KIRO_REQ_RDMA,                              // Requesting RDMA Access to/from the peer
         KIRO_ACK_RDMA,                              // acknowledge RDMA Request and provide Memory Region Information
         KIRO_REJ_RDMA,                              // RDMA Request rejected :(  (peer_mri will be invalid)
