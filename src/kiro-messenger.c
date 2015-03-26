@@ -91,6 +91,7 @@ struct pending_message {
 
 G_DEFINE_TYPE (KiroMessenger, kiro_messenger, G_TYPE_OBJECT);
 
+
 KiroMessenger *
 kiro_messenger_new (void)
 {
@@ -146,6 +147,9 @@ kiro_messenger_class_init (KiroMessengerClass *klass)
     gobject_class->finalize = kiro_messenger_finalize;
     g_type_class_add_private (klass, sizeof (KiroMessengerPrivate));
 }
+
+
+G_LOCK_DEFINE (close_lock);
 
 
 gboolean
@@ -255,7 +259,6 @@ send_msg (struct rdma_cm_id *id, struct kiro_rdma_mem *r, uint32_t imm_data)
 	wr.send_flags = IBV_SEND_SIGNALED;
     wr.imm_data = htonl (imm_data); // Needs to be network byte order
 
-
     if (ibv_post_send (id->qp, &wr, &bad)) {
         retval = FALSE;
     }
@@ -316,13 +319,83 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
     switch (type) {
         case KIRO_PING:
         {
-            struct kiro_ctrl_msg *msg = (struct kiro_ctrl_msg *) (ctx->cf_mr_send->mem);
-            msg->msg_type = KIRO_PONG;
+            struct kiro_ctrl_msg *msg_out = (struct kiro_ctrl_msg *) (ctx->cf_mr_send->mem);
+            msg_out->msg_type = KIRO_PONG;
 
             if (!send_msg (conn, ctx->cf_mr_send, 0)) {
                 g_warning ("Failure while trying to post PONG send: %s", strerror (errno));
                 goto done;
             }
+            break;
+        }
+        case KIRO_MSG_STUB:
+        {
+            g_debug ("Got a stub message from the peer.");
+            struct kiro_ctrl_msg *reply = (struct kiro_ctrl_msg *) (ctx->cf_mr_send->mem);
+            reply->msg_type = KIRO_REJ_RDMA;
+
+            struct KiroMessage *msg_out = NULL;
+            if (!priv->rec_callbacks.hooks) {
+                g_debug ("But noone if listening for any messages");
+            }
+            else if (priv->message) {
+                g_debug ("But we are currently waiting for something else");
+            }
+            else {
+                msg_out = g_malloc0 (sizeof (struct KiroMessage));
+                if (msg_out) {
+                    msg_out->payload = NULL;
+                    msg_out->size = 0;
+                    msg_out->msg = ntohl (wc.imm_data);
+                    msg_out->status = KIRO_MESSAGE_RECEIVED;
+                    msg_out->message_handled = FALSE;
+
+                    g_debug ("Sending ACK message");
+                    reply->msg_type = KIRO_ACK_MSG;
+                    reply->peer_mri.handle = msg_in->peer_mri.handle;
+                }
+            }
+
+            if (!send_msg (conn, ctx->cf_mr_send, 0)) {
+                g_warning ("Failure while trying to send ACK: %s", strerror (errno));
+                if (msg_out)
+                    g_free (msg_out);
+                goto done;
+            }
+
+            if (msg_out) {
+                g_hook_list_marshal_check (&(priv->rec_callbacks), FALSE, invoke_callbacks, msg_out);
+                if (!msg_out->message_handled) {
+                    g_debug ("Noone wants to handle the STUB message. Cleaning it up...");
+                    g_free (msg_out);
+                }
+            }
+            break;
+        }
+        case KIRO_ACK_MSG:
+        {
+            g_debug ("Got ACK for message '%u' from peer", msg_in->peer_mri.handle);
+            if (priv->message->handle != msg_in->peer_mri.handle) {
+                g_debug ("Reply is for the wrong message...");
+                //
+                //TODO: Cancel the current message transfer? Or do nothing?
+                //
+            }
+            else {
+                priv->message->msg->status = KIRO_MESSAGE_SEND_SUCCESS;
+            }
+
+            g_debug ("Cleaning up pending message ...");
+            if (priv->message->rdma_mem) {
+                priv->message->rdma_mem = NULL; // MSG was a stub. There is no rdma_mem anyways
+            }
+            g_hook_list_marshal_check (&(priv->send_callbacks), FALSE, invoke_callbacks, priv->message->msg);
+            if (priv->message->message_is_mine && !priv->message->msg->message_handled) {
+                g_debug ("Message is owned by the messenger and noone wants to handle it. Cleaning it up...");
+                g_free (priv->message->msg);
+            }
+            g_free (priv->message);
+            priv->message = NULL;
             break;
         }
         case KIRO_REQ_RDMA:
@@ -389,13 +462,16 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
             }
             else {
                 g_debug ("Cleaning up pending message ...");
-                priv->message->rdma_mem->mem = NULL; // mem points to the original message data! DON'T FREE IT JUST YET!
-                kiro_destroy_rdma_memory (priv->message->rdma_mem);
+                if (priv->message->rdma_mem) {
+                    priv->message->rdma_mem->mem = NULL; // mem points to the original message data! DON'T FREE IT JUST YET!
+                    kiro_destroy_rdma_memory (priv->message->rdma_mem);
+                }
                 priv->message->msg->status = KIRO_MESSAGE_SEND_FAILED;
                 g_hook_list_marshal_check (&(priv->send_callbacks), FALSE, invoke_callbacks, priv->message->msg);
                 if (priv->message->message_is_mine && !priv->message->msg->message_handled) {
                     g_debug ("Message is owned by the messenger and noone wants to handle it. Cleaning it up...");
-                    g_free (priv->message->msg->payload);
+                    if (priv->message->msg->payload)
+                        g_free (priv->message->msg->payload);
                     g_free (priv->message->msg);
                 }
                 g_free (priv->message);
@@ -456,7 +532,7 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
 
             if (0 > send_msg (conn, ctx->cf_mr_send, 0)) {
                 //
-                //TODO: If this ever happens, the peer will be in an undefined
+                //FIXME: If this ever happens, the peer will be in an undefined
                 //state. We don't know if the peer has already cleared our
                 //pending message request or not. Its almost impossible to
                 //recover from this... Maybe just disconnect 'broken pipe'?
@@ -828,6 +904,7 @@ kiro_messenger_submit_message (KiroMessenger *self, struct KiroMessage *msg, gbo
     if (!priv->conn)
         return -1;
 
+    g_mutex_lock (&priv->rdma_handling);
     struct kiro_connection_context *ctx;
     struct rdma_cm_id *conn;
     if (priv->type == KIRO_MESSENGER_SERVER) {
@@ -839,34 +916,46 @@ kiro_messenger_submit_message (KiroMessenger *self, struct KiroMessage *msg, gbo
         conn = priv->conn;
     }
 
-    struct kiro_rdma_mem *rdma_out = (struct kiro_rdma_mem *)g_malloc0 (sizeof (struct kiro_rdma_mem));
-    if (!rdma_out) {
-        //
-        //TODO
-        //
-        goto fail;
-    }
-    rdma_out->size = msg->size;
-    rdma_out->mem = msg->payload;
-    if (0 > kiro_register_rdma_memory (conn->pd, &(rdma_out->mr), msg->payload, msg->size, IBV_ACCESS_LOCAL_WRITE)) {
-        //
-        //TODO
-        //
-        goto fail;
-    }
-
     struct pending_message *pm = (struct pending_message *)g_malloc0(sizeof (struct pending_message));
     pm->direction = KIRO_MESSAGE_SEND;
     pm->message_is_mine = take_ownership;
     pm->msg = msg;
     pm->handle = priv->msg_id++;
-    pm->rdma_mem = rdma_out;
     priv->message = pm;
 
-    struct kiro_ctrl_msg *req = (struct kiro_ctrl_msg *)ctx->cf_mr_send->mem;
-    req->msg_type = KIRO_REQ_RDMA;
-    req->peer_mri.length = msg->size;
-    req->peer_mri.handle = pm->handle;
+    if (!pm) {
+        goto fail;
+    }
+
+    if (msg->size > 0) {
+        struct kiro_rdma_mem *rdma_out = (struct kiro_rdma_mem *)g_malloc0 (sizeof (struct kiro_rdma_mem));
+        if (!rdma_out) {
+            //
+            //TODO
+            //
+            goto fail;
+        }
+        rdma_out->size = msg->size;
+        rdma_out->mem = msg->payload;
+        if (0 > kiro_register_rdma_memory (conn->pd, &(rdma_out->mr), msg->payload, msg->size, IBV_ACCESS_LOCAL_WRITE)) {
+            //
+            //TODO
+            //
+            goto fail;
+        }
+        pm->rdma_mem = rdma_out;
+
+        struct kiro_ctrl_msg *req = (struct kiro_ctrl_msg *)ctx->cf_mr_send->mem;
+        req->msg_type = KIRO_REQ_RDMA;
+        req->peer_mri.length = msg->size;
+        req->peer_mri.handle = pm->handle;
+    }
+    else {
+        // STUB message
+        struct kiro_ctrl_msg *req = (struct kiro_ctrl_msg *)ctx->cf_mr_send->mem;
+        req->msg_type = KIRO_MSG_STUB;
+        req->peer_mri.handle = pm->handle;
+    }
 
     if (0 > send_msg (conn, ctx->cf_mr_send, msg->msg)) {
         //
@@ -874,9 +963,11 @@ kiro_messenger_submit_message (KiroMessenger *self, struct KiroMessage *msg, gbo
         //
         goto fail;
     }
+    g_mutex_unlock (&priv->rdma_handling);
     return 0;
 
 fail:
+    g_mutex_unlock (&priv->rdma_handling);
     return -1;
 }
 
