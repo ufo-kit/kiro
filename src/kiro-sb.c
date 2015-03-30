@@ -304,7 +304,7 @@ kiro_sb_push (KiroSb *self, void *data_in)
     g_return_val_if_fail (self != NULL, FALSE);
 
     KiroSbPrivate *priv = KIRO_SB_GET_PRIVATE (self);
-    g_return_val_if_fail (priv->initialized != 1, FALSE);
+    g_return_val_if_fail (priv->initialized == 1, FALSE);
 
     return kiro_trb_push (priv->trb, data_in);
 }
@@ -316,7 +316,7 @@ kiro_sb_push_dma (KiroSb *self)
     g_return_val_if_fail (self != NULL, FALSE);
 
     KiroSbPrivate *priv = KIRO_SB_GET_PRIVATE (self);
-    g_return_val_if_fail (priv->initialized != 1, FALSE);
+    g_return_val_if_fail (priv->initialized == 1, FALSE);
 
     return kiro_trb_dma_push (priv->trb);
 }
