@@ -186,17 +186,25 @@ void    kiro_sb_clear_sync_callbacks (KiroSb *sb);
  * Returns: A gboolean. TRUE = success. FALSE = fail.
  * @sb: (transfer none): The #KiroSb to perform this operation on
  * @size: Size in bytes of the content that will be served
+ * @addr: Optional address parameter to define where to listen for new
+ * connections.
+ * @port: Optional port to listen on for new connections
  * Description:
  *   Allows other remote #KiroSbs to connect to this #KiroSb and clone its
  *   memory. The internal memory is initially empty. Use the kiro_sb_push or
  *   kiro_sb_push_dma functions to update the served data.
+ *   If @addr is given the #KiroSb will try to bind to the InfiniBand device
+ *   associated with the given address. If no address is given it will bind to
+ *   the first device it can find. If @port is given, the #KiroSb will listen
+ *   for new connections on this specific port. Otherwise, the default port
+ *   '60010' will be used.
  * Note:
  *   A #KiroSb that already 'serves' its content can no longer clone
  *   other remote #KiroSbs.
  * See also:
  *   kiro_sb_push, kiro_sb_push_dma
  */
-gboolean    kiro_sb_serve           (KiroSb *sb, gulong size);
+gboolean    kiro_sb_serve           (KiroSb *sb, gulong size, const gchar *addr, const gchar *port);
 
 /**
  * kiro_sb_clone - Clone the content of a remote #KiroSb

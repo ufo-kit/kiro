@@ -187,7 +187,7 @@ idle_func (KiroSbPrivate *priv)
     gulong old_offset = header->offset;
     kiro_client_sync_partial (priv->client, 0, sizeof(struct KiroTrbInfo), 0);
     kiro_trb_refresh (priv->trb);
-    if ((old_offset != header->offset) && 0 < header->offset) {
+    if (((old_offset != header->offset) || TRUE) && 0 < header->offset) {
         gulong offset = (gulong) (kiro_trb_get_element (priv->trb, -1) - kiro_trb_get_raw_buffer (priv->trb));
         kiro_client_sync_partial (priv->client, offset, kiro_trb_get_element_size (priv->trb), offset);
         g_hook_list_invoke_check (&(priv->callbacks), FALSE);
@@ -218,7 +218,7 @@ kiro_sb_thaw (KiroSb *self)
 
 
 gboolean
-kiro_sb_serve (KiroSb *self, gulong size)
+kiro_sb_serve (KiroSb *self, gulong size, const gchar *addr, const gchar *port)
 {
     g_return_val_if_fail (self != NULL, FALSE);
 
@@ -236,8 +236,10 @@ kiro_sb_serve (KiroSb *self, gulong size)
     void *buff = kiro_trb_get_raw_buffer (priv->trb);
     gulong b_size = kiro_trb_get_raw_size (priv->trb);
 
+    const gchar *port_internal = port ? port : "60010";
+
     priv->server = kiro_server_new ();
-    if (0 > kiro_server_start (priv->server, NULL, "60010", buff, b_size)) {
+    if (0 > kiro_server_start (priv->server, addr, port_internal, buff, b_size)) {
         g_debug ("Failed to start KIRO Server");
         kiro_server_free (priv->server);
         kiro_trb_free (priv->trb);
