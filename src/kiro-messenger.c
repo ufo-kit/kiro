@@ -827,8 +827,8 @@ kiro_messenger_start (KiroMessenger *self, const char *address, const char *port
             goto fail;
         }
 
-        g_message ("Server bound to address %s:%s", addr_local, port);
-        g_message ("Enpoint listening");
+        g_debug ("Server bound to address %s:%s", addr_local, port);
+        g_debug ("Enpoint listening");
 
     }
     else if (role == KIRO_MESSENGER_CLIENT) {
@@ -855,7 +855,7 @@ kiro_messenger_start (KiroMessenger *self, const char *address, const char *port
         //
         // main_loop now holds a reference. We don't need ours any more
         g_io_channel_unref (priv->rdma_ec);
-        g_message ("Connection to %s:%s established", address, port);
+        g_debug ("Connection to %s:%s established", address, port);
     }
     else {
         g_critical ("Messenger role needs to be either KIRO_MESSENGER_SERVER or KIRO_MESSENGER_CLIENT");
@@ -1072,6 +1072,6 @@ kiro_messenger_stop (KiroMessenger *self)
     }
 
     g_hook_list_clear (&(priv->rec_callbacks));
-    g_message ("Messenger stopped successfully");
+    g_debug ("Messenger stopped successfully");
 }
 
