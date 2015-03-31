@@ -125,6 +125,7 @@ kiro_attach_qp (struct rdma_cm_id *id)
     qp_attr.cap.max_recv_wr = 10;
     qp_attr.cap.max_send_sge = 1;
     qp_attr.cap.max_recv_sge = 1;
+    qp_attr.sq_sig_all = 1;
     return rdma_create_qp (id, id->pd, &qp_attr);
 }
 

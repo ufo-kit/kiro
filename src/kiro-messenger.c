@@ -348,7 +348,6 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
                     msg_out->size = 0;
                     msg_out->msg = ntohl (wc.imm_data);
                     msg_out->status = KIRO_MESSAGE_RECEIVED;
-                    msg_out->message_handled = FALSE;
 
                     g_debug ("Sending ACK message");
                     reply->msg_type = KIRO_ACK_MSG;
@@ -356,7 +355,7 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
                 }
             }
 
-            if (!send_msg (conn, ctx->cf_mr_send, 0)) {
+            if (0 > send_msg (conn, ctx->cf_mr_send, 0)) {
                 g_warning ("Failure while trying to send ACK: %s", strerror (errno));
                 if (msg_out)
                     g_free (msg_out);
@@ -365,10 +364,8 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
 
             if (msg_out) {
                 g_hook_list_marshal_check (&(priv->rec_callbacks), FALSE, invoke_callbacks, msg_out);
-                if (!msg_out->message_handled) {
-                    g_debug ("Noone wants to handle the STUB message. Cleaning it up...");
-                    g_free (msg_out);
-                }
+                // Stub messages can always be cleaned up
+                g_free (msg_out);
             }
             break;
         }
@@ -386,9 +383,7 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
             }
 
             g_debug ("Cleaning up pending message ...");
-            if (priv->message->rdma_mem) {
-                priv->message->rdma_mem = NULL; // MSG was a stub. There is no rdma_mem anyways
-            }
+            priv->message->rdma_mem = NULL; // MSG was a stub. There is no rdma_mem anyways
             g_hook_list_marshal_check (&(priv->send_callbacks), FALSE, invoke_callbacks, priv->message->msg);
             if (priv->message->message_is_mine && !priv->message->msg->message_handled) {
                 g_debug ("Message is owned by the messenger and noone wants to handle it. Cleaning it up...");
@@ -444,8 +439,14 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
 
             if (0 > send_msg (conn, ctx->cf_mr_send, 0)) {
                 g_critical ("Failed to send RDMA credentials to peer!");
-                if (rdma_data_in)
+                if (rdma_data_in) {
+                    // If we reach this point, we definitely have a pending
+                    // message. Clean it up!
                     kiro_destroy_rdma_memory (rdma_data_in);
+                    g_free (priv->message->msg);
+                    g_free (priv->message);
+                    priv->message = NULL;
+                }
             }
             g_debug ("RDMA message reply sent to peer");
             break;
@@ -567,13 +568,19 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
             if (priv->message->msg->message_handled != TRUE) {
                 g_debug ("Noone cared for the message. Received data will be freed.");
             }
+            else {
+                priv->message->rdma_mem->mem = NULL;
+            }
+
             // -- FALL THROUGH INTENTIONAL -- //
         }
         case KIRO_RDMA_CANCEL:
         {
             g_debug ("Cleaning up pending message ...");
-            kiro_destroy_rdma_memory (priv->message->rdma_mem);
-            g_free (priv->message);
+            if (priv->message) {
+                kiro_destroy_rdma_memory (priv->message->rdma_mem);
+                g_free (priv->message);
+            }
             priv->message = NULL;
             break;
         }
@@ -917,15 +924,16 @@ kiro_messenger_submit_message (KiroMessenger *self, struct KiroMessage *msg, gbo
     }
 
     struct pending_message *pm = (struct pending_message *)g_malloc0(sizeof (struct pending_message));
+    if (!pm) {
+        goto fail;
+    }
     pm->direction = KIRO_MESSAGE_SEND;
     pm->message_is_mine = take_ownership;
     pm->msg = msg;
     pm->handle = priv->msg_id++;
     priv->message = pm;
 
-    if (!pm) {
-        goto fail;
-    }
+    struct kiro_ctrl_msg *req = (struct kiro_ctrl_msg *)ctx->cf_mr_send->mem;
 
     if (msg->size > 0) {
         struct kiro_rdma_mem *rdma_out = (struct kiro_rdma_mem *)g_malloc0 (sizeof (struct kiro_rdma_mem));
@@ -945,14 +953,12 @@ kiro_messenger_submit_message (KiroMessenger *self, struct KiroMessage *msg, gbo
         }
         pm->rdma_mem = rdma_out;
 
-        struct kiro_ctrl_msg *req = (struct kiro_ctrl_msg *)ctx->cf_mr_send->mem;
         req->msg_type = KIRO_REQ_RDMA;
         req->peer_mri.length = msg->size;
         req->peer_mri.handle = pm->handle;
     }
     else {
         // STUB message
-        struct kiro_ctrl_msg *req = (struct kiro_ctrl_msg *)ctx->cf_mr_send->mem;
         req->msg_type = KIRO_MSG_STUB;
         req->peer_mri.handle = pm->handle;
     }
