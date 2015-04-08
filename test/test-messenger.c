@@ -92,6 +92,7 @@ main ( int argc, char *argv[] )
     else {
         gboolean answer = FALSE;
         kiro_messenger_add_receive_callback (messenger, grab_message, &answer);
+        g_message ("Messenger started. Waiting for incoming messages.");
         while (1) {
             while (!answer) {};
             struct KiroMessage *msg = g_malloc0 (sizeof (struct KiroMessage));
