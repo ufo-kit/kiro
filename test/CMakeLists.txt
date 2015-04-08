@@ -27,5 +27,8 @@ target_link_libraries(kiro-test-partial kiro ${KIRO_DEPS})
 add_executable(kiro-test-messenger test-messenger.c)
 target_link_libraries(kiro-test-messenger kiro ${KIRO_DEPS})
 
+add_executable(kiro-test-messenger-bandwidth test-messenger-bandwidth.c)
+target_link_libraries(kiro-test-messenger-bandwidth kiro ${KIRO_DEPS})
+
 install(TARGETS kiro-test-bandwidth kiro-test-latency kiro-test-messenger
-    kiro-server RUNTIME DESTINATION ${KIRO_BINDIR})
+    kiro-server kiro-test-messenger-bandwidth RUNTIME DESTINATION ${KIRO_BINDIR})
