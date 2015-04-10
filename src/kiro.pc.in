@@ -5,6 +5,6 @@ includedir=@KIRO_INCLUDEDIR@
 
 Name: @TARNAME@
 Description: @LIBKIRO_DESCRIPTION_SUMMARY@
-Version: @LIBKIRO_ABI_VERSION@
+Version: @LIBKIRO_VERSION_MAJOR@.@LIBKIRO_VERSION_MINOR@.@LIBKIRO_VERSION_PATCH@
 Libs: -L${libdir} -lkiro
 Cflags: -I${includedir}
