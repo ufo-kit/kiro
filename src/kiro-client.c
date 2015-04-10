@@ -16,15 +16,6 @@
    Franklin St, Fifth Floor, Boston, MA 02110, USA
 */
 
-/**
- * SECTION: kiro-client
- * @Short_description: KIRO RDMA Client / Consumer
- * @Title: KiroClient
- *
- * KiroClient implements the client / active / consumer side of the the RDMA
- * Communication Channel. It uses a KIRO-CLIENT to manage data read from the Server.
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

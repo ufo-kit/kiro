@@ -16,15 +16,6 @@
    Franklin St, Fifth Floor, Boston, MA 02110, USA
 */
 
-/**
- * SECTION: kiro-server
- * @Short_description: KIRO RDMA Server / Consumer
- * @Title: KiroServer
- *
- * KiroServer implements the server / passive / provider side of the the RDMA
- * Communication Channel. It uses a KIRO-TRB to manage its data.
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

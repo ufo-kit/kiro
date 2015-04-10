@@ -16,18 +16,7 @@
    Franklin St, Fifth Floor, Boston, MA 02110, USA
 */
 
-/**
- * SECTION: kiro-trb
- * @Short_description: KIRO 'Transmittable Ring Buffer'
- * @Title: KiroTrb
- *
- * KiroTrb implements a 'Transmittable Ring Buffer' that holds all necessary information
- * about its content inside itself, so its data can be exchanged between different
- * instances of the KiroTrb Class and/or sent over a network.
- */
-
 #include <stdio.h>
-
 #include <stdlib.h>
 #include <string.h>
 #include <glib.h>

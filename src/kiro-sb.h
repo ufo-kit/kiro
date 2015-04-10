@@ -53,13 +53,6 @@ struct _KiroSb {
 
 };
 
-
-/**
- * IbvConnectorInterface:
- *
- * Base interface for IbvConnectors.
- */
-
 struct _KiroSbClass {
 
     GObjectClass parent_class;
@@ -68,27 +61,25 @@ struct _KiroSbClass {
 
 
 /* GObject and GType functions */
-/**
- * kiro_sb_get_type: (skip)
- * Returns: GType of #KiroSb
- */
 GType       kiro_sb_get_type           (void);
 
 /**
- * kiro_sb_new - Creates a new #KiroSb
- * Returns: (transfer full): A pointer to a new #KiroSb
- * Description:
+ * kiro_sb_new:
+ *
  *   Creates a new #KiroSb and returns a pointer to it.
+ *
+ * Returns: (transfer full): A pointer to a new #KiroSb
  * See also:
  *   kiro_sb_free
  */
 KiroSb*    kiro_sb_new                (void);
 
 /**
- * kiro_sb_free - 'Destroys' the given #KiroSb
- * @trb: (transfer none): The #KiroSb that is to be freed
- * Description:
- *   Clears all underlying memory and frees the object memory. 
+ * kiro_sb_free:
+ * @sb: (transfer none): The #KiroSb that is to be freed
+ *
+ *   Clears all underlying memory and frees the object memory.
+ *
  * Note:
  *   The internal memory is also freed when calling this function. If you want
  *   to continue using the raw @sb memory after you call this function, you need
@@ -100,11 +91,12 @@ KiroSb*    kiro_sb_new                (void);
 void        kiro_sb_free               (KiroSb *sb);
 
 /**
- * kiro_sb_stop - Stops the #KiroSb and clears all internal memory
+ * kiro_sb_stop:
  * @sb: (transfer none): The #KiroSb to stop
- * Description:
+ *
  *   The given #KiroSb is stopped and all internal memory is cleared. It is put
  *   back into its initial state and it can be used as if it was just created
+ *
  * See also:
  *   kiro_sb_new, kiro_sb_serve, kiro_sb_clone
  */
@@ -116,13 +108,14 @@ typedef gboolean KiroContinueFlag;
 #define KIRO_CALLBACK_REMOVE FALSE
 
 /**
- * KiroSbSyncCallbackFunc - Function type for sync callbacks os a #KiroSb
+ * KiroSbSyncCallbackFunc:
  * @user_data: (transfer none): The #user_data which was provided during
  * registration of this callback
- * Returns: A #KiroContinueFlag
- * Description:
+ *
  *   Defines the type of a callback function which will be invoked every time
  *   the #KiroSb syncs new data
+ *
+ * Returns: A #KiroContinueFlag deciding whether to keep this callback alive or not
  * Note:
  *   Returning %FALSE or %KIRO_CALLBACK_REMOVE will automatically remove the callback
  *   from the internal callback list. Return %TRUE or %KIRO_CALLBACK_CONTINUE if you
@@ -133,13 +126,14 @@ typedef gboolean KiroContinueFlag;
 typedef KiroContinueFlag (*KiroSbSyncCallbackFunc)   (void *user_data);
 
 /**
- * kiro_sb_add_sync_callback - Add a sync callback to the #KiroSb
- * @sb: (tranfer none): The #KiroSb to register this callback to
- * @func: (transfer none): A function pointer to the callback function
- * Returns: The internal id of the registerd callback
- * Description:
+ * kiro_sb_add_sync_callback:
+ * @sb: (transfer none): The #KiroSb to register this callback to
+ * @callback: (transfer none) (scope call): A function pointer to the callback function
+ *
  *   Adds a callback to the passed #KiroSbSyncCallbackFunc to this #KiroSb which
  *   will be invoked every time the #KiroSb syncs new data.
+ *
+ * Returns: The internal id of the registerd callback
  * Note:
  *   The sync callbacks will only be invoked on a 'clonig' #KiroSb. All
  *   registered callbacks will be invoked in the order they were added to the
@@ -150,16 +144,17 @@ typedef KiroContinueFlag (*KiroSbSyncCallbackFunc)   (void *user_data);
 gulong    kiro_sb_add_sync_callback (KiroSb *sb, KiroSbSyncCallbackFunc callback, void *user_data);
 
 /**
- * kiro_sb_remove_sync_callback - Remove a callback from the list
+ * kiro_sb_remove_sync_callback:
  * @sb: (transfer none): The #KiroSb to remove the callback from
  * @id: The id of the callback to be removed
- * Returns: A #gboolean. %TRUE if the callback was found and removed. %FALSE
- *   otherwise
- * Description:
+ *
  *   Removes the callback with the given @id from the internal list. If the
  *   callback with the given @id was not found %FALSE is returned. If the
  *   callback with the given @id was found, it will be removed from the callback
  *   list and %TRUE is returned
+ *
+ * Returns: A #gboolean. %TRUE if the callback was found and removed. %FALSE
+ *   otherwise
  * Note:
  *   Any currently active callback will still finish before it is removed from
  *   the list.
@@ -169,10 +164,11 @@ gulong    kiro_sb_add_sync_callback (KiroSb *sb, KiroSbSyncCallbackFunc callback
 gboolean    kiro_sb_remove_sync_callback (KiroSb *sb, gulong id);
 
 /**
- * kiro_sb_clear_sync_callbacks - Clear all sync callbacks
+ * kiro_sb_clear_sync_callbacks:
  * @sb: (transfer none): The #KiroSb to perform this operation on
- * Description:
+ *
  *   Removes all registerd callbacks from the internal list
+ *
  * Note:
  *   Any currently active callbacks will still finish before they are removed
  *   from the list
@@ -182,14 +178,13 @@ gboolean    kiro_sb_remove_sync_callback (KiroSb *sb, gulong id);
 void    kiro_sb_clear_sync_callbacks (KiroSb *sb);
 
 /**
- * kiro_sb_serve - Allow remote KiroSbs to clone this buffers memory
- * Returns: A gboolean. TRUE = success. FALSE = fail.
+ * kiro_sb_serve:
  * @sb: (transfer none): The #KiroSb to perform this operation on
  * @size: Size in bytes of the content that will be served
  * @addr: Optional address parameter to define where to listen for new
  * connections.
  * @port: Optional port to listen on for new connections
- * Description:
+ *
  *   Allows other remote #KiroSbs to connect to this #KiroSb and clone its
  *   memory. The internal memory is initially empty. Use the kiro_sb_push or
  *   kiro_sb_push_dma functions to update the served data.
@@ -198,6 +193,8 @@ void    kiro_sb_clear_sync_callbacks (KiroSb *sb);
  *   the first device it can find. If @port is given, the #KiroSb will listen
  *   for new connections on this specific port. Otherwise, the default port
  *   '60010' will be used.
+ *
+ * Returns: A gboolean. TRUE = success. FALSE = fail.
  * Note:
  *   A #KiroSb that already 'serves' its content can no longer clone
  *   other remote #KiroSbs.
@@ -207,14 +204,15 @@ void    kiro_sb_clear_sync_callbacks (KiroSb *sb);
 gboolean    kiro_sb_serve           (KiroSb *sb, gulong size, const gchar *addr, const gchar *port);
 
 /**
- * kiro_sb_clone - Clone the content of a remote #KiroSb
- * Returns: A gboolean. TRUE = connection successful. FALSE = connection failed.
+ * kiro_sb_clone:
  * @sb: (transfer none): The #KiroSb to perform this operation on
  * @address: The InfiniBand address of the remote #KiroSb which should be cloned
  * @port: The InfiniBand port of the remote #KiroSb which should be cloned
- * Description:
+ *
  *   Connects to the remote #KiroSb given by @address and @port and
  *   continuousely clones its content into the local #KiroSb
+ *
+ * Returns: A gboolean. TRUE = connection successful. FALSE = connection failed.
  * Note:
  *   A #KiroSb that clones a remote #KiroSb can no longer start to 'serve' its
  *   content to other remote #KiroSbs
@@ -224,12 +222,13 @@ gboolean    kiro_sb_serve           (KiroSb *sb, gulong size, const gchar *addr,
 gboolean    kiro_sb_clone       (KiroSb *sb, const gchar *address, const gchar *port);
 
 /**
- * kiro_sb_get_size - Get the size in bytes of the managed memory
- * Returns: A gulong giving the size of the managed memory in bytes
+ * kiro_sb_get_size:
  * @sb: (transfer none): The #KiroSb to perform this operation on
- * Description:
+ *
  *   Returns the size in bytes of the content that is being served and/or cloned
  *   from.
+ *
+ * Returns: A gulong giving the size of the managed memory in bytes
  * Note:
  *   Since #KiroSb uses an internal triple buffer, the value gained from this
  *   function only gives the size of one element from that buffer. The size of
@@ -240,33 +239,36 @@ gboolean    kiro_sb_clone       (KiroSb *sb, const gchar *address, const gchar *
 gulong      kiro_sb_get_size    (KiroSb *sb);
 
 /**
- * kiro_sb_freeze - Stop auto syncing
+ * kiro_sb_freeze:
  * @sb: (transfer none): The #KiroSb to perform this operation on
- * Description:
+ *
  *   Stops the given #KiroSb from automatically syncing.
+ *
  * See also:
  *   kiro_sb_thaw
  */
 void      kiro_sb_freeze      (KiroSb *sb);
 
 /**
- * kiro_sb_thaw - Enable auto syncing
+ * kiro_sb_thaw:
  * @sb: (transfer none): The #KiroSb to perform this operation on
- * Description:
+ *
  *   Enable the given #KiroSb automatic syncing.
+ *
  * See also:
  *   kiro_sb_freeze
  */
 void     kiro_sb_thaw         (KiroSb *sb);
 
 /**
- * kiro_sb_get_data - Get a pointer to the stored data
+ * kiro_sb_get_data:
  * @sb: (transfer none) The #KiroSb to get the data from
- * Returns: A void pointer the stored data
- * Description:
+ *
  *   Returns a void pointer to the most current incarnation of the stored data.
  *   Data might either change by pushing (in case of a 'serving' #KiroSb) or
  *   after (automatic or manual) syncing (in case of a 'cloning' #KiroSb).
+ *
+ * Returns: (transfer none): A void pointer the stored data
  * Note:
  *   The returned pointer to the element might become invalid at any time by
  *   automatic or manual sync. Under no circumstances might the returned pointer
@@ -279,12 +281,13 @@ void     kiro_sb_thaw         (KiroSb *sb);
 void*   kiro_sb_get_data     (KiroSb *sb);
 
 /**
- * kiro_sb_get_data_blocking - Wait for new data and return a pointer to it
+ * kiro_sb_get_data_blocking:
  * @sb: (transfer none) The #KiroSb to get the data from
- * Returns: A void pointer the stored data
- * Description:
+ *
  *   Calling this function will do the same thing as kiro_sb_get_data, but it
  *   will internaly wait until new data has arived before returning it.
+ *
+ * Returns: (transfer none): A void pointer the stored data
  * Note:
  *   The returned pointer to the element might become invalid at any time by
  *   automatic or manual sync. Under no circumstances might the returned pointer
@@ -297,30 +300,32 @@ void*   kiro_sb_get_data     (KiroSb *sb);
 void*   kiro_sb_get_data_blocking  (KiroSb *sb);
 
 /**
- * kiro_sb_push - Push data into the memory
+ * kiro_sb_push:
  * @sb: (transfer none) The #KiroSb to get the data from
  * @data: (transfer none) void pointer to copy data from
- * Returns: %TRUE on success %FALSE in case of error
- * Desciption:
+ *
  *   Updates the internal memory by memcopy()-ing the given element into it.
  *   This operation is only valid for 'serving' #KiroSb. Calling this function
  *   on a 'cloning' #KiroSb will allways return %FALSE.
+ *
+ * Returns: %TRUE on success %FALSE in case of error
  * Note:
  *   The internal memcopy() will assume an element of the correct size (given
- *   with the initial call to kiro_sb_serve or returned by kiro_sb_get_size) 
+ *   with the initial call to kiro_sb_serve or returned by kiro_sb_get_size)
  * See also:
  *   kiro_sb_get_size, kiro_sb_serve
  */
 gboolean kiro_sb_push       (KiroSb *sb, void *data);
 
 /**
- * kiro_sb_push_dma - Push data into the memory using memory access
+ * kiro_sb_push_dma:
  * @sb: (transfer none) The #KiroSb to get the data from
- * Returns: A pointer to the memory where the new data should be stored
- * Desciption:
+ *
  *   Returns a pointer where the new data should be stored.
  *   This operation is only valid for a 'serving' #KiroSb. Calling this
  *   function on a 'cloning' #KiroSb will allways return a %NULL pointer.
+ *
+ * Returns: (transfer none): A pointer to the memory where the new data should be stored
  * Note:
  *   It is the users responsibility to ensure no more data is written to the
  *   pointed memory then was specified with the initial call to kiro_sb_serve or

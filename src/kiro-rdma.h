@@ -16,6 +16,13 @@
    Franklin St, Fifth Floor, Boston, MA 02110, USA
 */
 
+/**
+ * SECTION: kiro-rdma
+ * 
+ * KIRO toolbox for common operations with and around the
+ * RDMA Connection Manager for InfiniBand mechanisms
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -26,7 +33,14 @@
 
 #include <rdma/rdma_cma.h>
 
-
+/**
+ * kiro_connection_context: (skip)
+ *
+ * Holds all necessary metainformation to indentify with an abstract Kiro
+ * Connection. This is constructed and attached to a rdma_cm_id's context
+ * pointer.
+ *
+ */
 struct kiro_connection_context {
 
     // Information and necessary structurs
@@ -48,7 +62,13 @@ struct kiro_connection_context {
 
 };
 
-
+/**
+ * kiro_ctrl_msg: (skip)
+ *
+ * Struct representing a Kiro control-flow message which is used internally by
+ * all kiro komponents to communicate with their peer(s)
+ *
+ */
 struct kiro_ctrl_msg {
 
     enum {
@@ -64,6 +84,13 @@ struct kiro_ctrl_msg {
 };
 
 
+/**
+ * kiro_rdma_mem: (skip)
+ *
+ * Container for all necessary information and data-elements that are needed to
+ * describe memory that can be managed by means of RDMA
+ *
+ */
 struct kiro_rdma_mem {
 
     void            *mem;   // Pointer to the beginning of the memory block

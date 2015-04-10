@@ -16,18 +16,7 @@
    Franklin St, Fifth Floor, Boston, MA 02110, USA
 */
 
-/**
- * SECTION: kiro-sb
- * @Short_description: KIRO 'Synchronizing Buffer'
- * @Title: KiroSb
- *
- * KiroSb implements a 'Synchronizing Buffer' that automatically keeps the local
- * memory content up to date by mirroring the remote SyncBuffers memory content
- * automatically without any required user interaction
- */
-
 #include <stdio.h>
-
 #include <stdlib.h>
 #include <string.h>
 #include <glib.h>

@@ -54,13 +54,6 @@ struct _KiroClient {
     KiroClientPrivate *priv;
 };
 
-
-/**
- * IbvConnectorInterface:
- *
- * Base interface for IbvConnectors.
- */
-
 struct _KiroClientClass {
 
     GObjectClass parent_class;
@@ -70,28 +63,26 @@ struct _KiroClientClass {
 
 
 /* GObject and GType functions */
-/**
- * kiro_client_get_type: (skip)
- * Returns: GType of #KiroClient
- */
 GType       kiro_client_get_type            (void);
 
 /**
- * kiro_client_new - Creates a new #KiroClient
+ * kiro_client_new:
+ *
+ * Creates a new, unconnected #KiroClient and returns a pointer to it.
+ *
  * Returns: (transfer full): A pointer to a new #KiroClient
- * Description:
- *   Creates a new, unconnected #KiroClient and returns a pointer to it.
  * See also:
  *   kiro_client_free, kiro_client_connect
  */
 KiroClient* kiro_client_new                 (void);
 
 /**
- * kiro_client_free - 'Destroys' the given #KiroClient
+ * kiro_client_free:
  * @client: (transfer none): The #KiroClient that is to be freed
- * Description:
+ *
  *   Transitions the #KiroServer through all necessary shutdown routines and
  *   frees the object memory.
+ *
  * Note:
  *   The memory content that has been transfered from the server is
  *   automatically freed when calling this function. If you want to continue
@@ -107,15 +98,17 @@ void        kiro_client_free                (KiroClient *client);
 /* client functions */
 
 /**
- * kiro_client_connect - Connect a #KiroClient to a Server
+ * kiro_client_connect:
  * @client: (transfer none): The #KiroClient to connect
  * @dest_addr: (transfer none): The address of the target server
  * @dest_port: (transfer none): The port of the target server
- * Returns:
- *   0 if the connection was successful, -1 in case of connection error
- * Description:
+ *
  *   Connects the given #KiroClient to a KIRO server described by @dest_addr and
  *   @dest_port.
+ *
+ * Returns:
+ *   0 if the connection was successful, -1 in case of connection error
+ *
  * Note:
  *   When building a connection to the server, memory for the transmission is
  *   created as well.
@@ -125,11 +118,12 @@ void        kiro_client_free                (KiroClient *client);
 int         kiro_client_connect             (KiroClient *client, const char *dest_addr, const char *dest_port);
 
 /**
- * kiro_client_disconnect - Diconnect a #KiroClient from the Server
+ * kiro_client_disconnect:
  * @client: (transfer none): The #KiroClient to disconnect
- * Description:
+ *
  *   Disconnects the given #KiroClient from the KIRO server that it is connected
  *   to. If the @client is not connected, this function has no effect.
+ *
  * Note:
  *   The memory content that has been transfered from the server is
  *   automatically freed when calling this function. If you want to continue
@@ -142,14 +136,15 @@ int         kiro_client_connect             (KiroClient *client, const char *des
 void        kiro_client_disconnect             (KiroClient *client);
 
 /**
- * kiro_client_sync - Read data from the connected server
+ * kiro_client_sync:
  * @client: (transfer none): The #KiroServer to use sync on
- * Returns:
- *   0 if successful, -1 in case of synchronisation error
- * Description:
+ *
  *   This synchronizes the client with the server, clining the memory
  *   provided by the server to the local client. The memory can be accessed by
  *   using kiro_client_get_memory().
+ *
+ * Returns:
+ *   0 if successful, -1 in case of synchronisation error
  * Note:
  *   The server can send a 'reallocation' request to the client, forcing it to
  *   reallocate new memory freeing the old memory in the process. This might
@@ -160,19 +155,20 @@ void        kiro_client_disconnect             (KiroClient *client);
 int         kiro_client_sync                (KiroClient *client);
 
 /**
- * kiro_client_sync_partial - Read data from the connected server
+ * kiro_client_sync_partial:
  * @client: (transfer none): The #KiroServer to use sync on
  * @remote_offset: remote read offset in bytes
  * @size: ammount of bytes to read. 0 for 'until end'
  * @local_offset: offset for the storage in the local buffer
- * Returns:
- *   0 if successful, -1 in case of synchronisation error
- * Description:
+ *
  *   This synchronizes the client with the server, clining the memory
  *   provided by the server to the local client. The memory can be accessed by
  *   using kiro_client_get_memory(). Uses the offset parameters to determine
  *   which memory region to read from the server and where to store the
  *   information to.
+ *
+ * Returns:
+ *   0 if successful, -1 in case of synchronisation error
  * Note:
  *   The server can send a 'reallocation' request to the client, forcing it to
  *   reallocate new memory freeing the old memory in the process. This might
@@ -183,23 +179,26 @@ int         kiro_client_sync                (KiroClient *client);
 int         kiro_client_sync_partial        (KiroClient *client, gulong remote_offset, gulong size, gulong local_offset);
 
 /**
- * kiro_client_ping_server - Sends a PING to the server
+ * kiro_client_ping_server:
  * @client: (transfer none): The #KiroServer to send the PING from
- * Returns:
- *   A #guint telling the time (in microseconds) how long it took for the
- *   connected #KiroServer to reply
- * Description:
+ *
  *   Sends a PING package to the connected #KiroServer and waits for a PONG
  *   package from that server. The time between sending the PING and receiving
  *   the PONG (in microseconds) is measured and returned by this function.
+ *
+ * Returns:
+ *   A #guint telling the time (in microseconds) how long it took for the
+ *   connected #KiroServer to reply
  */
 gint        kiro_client_ping_server         (KiroClient *client);
 
 /**
- * kiro_client_get_memory - Return a pointer to the current client memory
+ * kiro_client_get_memory:
  * @client: (transfer none): The #KiroClient to get the memory from
- * Returns: (transfer none):
- *    A pointer to the current memory of the client.
+ *
+ *    Provides a pointer to the content of the internal memory that was pulled
+ *    from the server.
+ *
  * Note:
  *    The server can instruct the client to reallocate memory on the next
  *    occurrence of kiro_client_sync(), freeing the old memory. Also, calling
@@ -209,18 +208,21 @@ gint        kiro_client_ping_server         (KiroClient *client);
  *    information from kiro_client_get_memory() and
  *    kiro_client_get_memory_size() first.
  *    The returned memory might under NO circumstances be freed by the user!
+ * Returns: (transfer none):
+ *    A pointer to the current memory of the client.
  * See also:
  *    kiro_client_get_memory_size, kiro_client_sync
  */
 void*       kiro_client_get_memory          (KiroClient *client);
 
 /**
- * kiro_client_get_memory_size - Return the client memory size in bytes
+ * kiro_client_get_memory_size:
  * @client: (transfer none): The #KiroClient to get the memory size of
+ *
+ *    Returns the size of the allocated memory of @client, in bytes.
+ *
  * Returns:
  *    The size of the given #KiroClient memory in bytes
- * Description:
- *    Returns the size of the allocated memory of @client, in bytes.
  * Note:
  *    The server can instruct the client to reallocate memroy on the next
  *    occurrence of kiro_server_sync(), freeing the old memory. This might also

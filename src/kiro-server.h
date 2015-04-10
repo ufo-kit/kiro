@@ -54,13 +54,6 @@ struct _KiroServer {
     KiroServerPrivate *priv;
 };
 
-
-/**
- * IbvConnectorInterface:
- *
- * Base interface for IbvConnectors.
- */
-
 struct _KiroServerClass {
 
     GObjectClass parent_class;
@@ -70,29 +63,26 @@ struct _KiroServerClass {
 
 
 /* GObject and GType functions */
-
-/**
- * kiro_server_get_type: (skip)
- * Returns: GType of KiroServer
- */
 GType        kiro_server_get_type            (void);
 
 /**
- * kiro_server_new - Creates a new #KiroServer
+ * kiro_server_new:
+ * Creates a new, unbound #KiroServer and returns a pointer to it.
+ *
  * Returns: (transfer full): A pointer to a new #KiroServer
- * Description:
- *   Creates a new, unbound #KiroServer and returns a pointer to it.
+ *
  * See also:
  *   kiro_server_start, kiro_server_free
  */
 KiroServer*  kiro_server_new                (void);
 
 /**
- * kiro_server_free - 'Destroys' the given #KiroServer
+ * kiro_server_free:
  * @server: The #KiroServer that is to be freed
- * Description:
+ *
  *   Transitions the #KiroServer through all necessary shutdown routines and
  *   frees the object memory.
+ *
  * Note:
  *   The memory that is given to the server when calling kiro_server_start will
  *   NOT be freed! The user is responsible to free this memory, if no longer
@@ -106,15 +96,16 @@ void         kiro_server_free                (KiroServer *server);
 /* server functions */
 
 /**
- * kiro_server_start - Starts the server, providing the given memory
+ * kiro_server_start:
  * @server: #KiroServer to perform the operation on
  * @bind_addr: Local address to bind the server to
  * @bind_port: Local port to listen for connections
  * @mem: (transfer none): Pointer to the memory that is to be provided
  * @mem_size: Size in bytes of the given memory
- * Description:
+ *
  *   Starts the #KiroServer to provide the given memory to any connecting
  *   client.
+ *
  * Notes:
  *   If the bind_addr is NULL, the server will bind to the first device
  *   it can find on the machine and listen across all IPs. Otherwise it
@@ -131,22 +122,23 @@ int kiro_server_start (KiroServer *server, const char *bind_addr, const char *bi
 
 
 /**
- * kiro_server_realloc - Change the memory that is provided by the server
+ * kiro_server_realloc:
  * @server: #KiroServer to perform the operation on
  * @mem: (transfer none): Pointer to the memory that is to be provided
  * @mem_size: Size in bytes of the given memory
- * Description:
+ *
  *   Changes the memory that is provided by the server. All connected clients
  *   will automatically be informed about this change.
  */
-void kiro_server_realloc (KiroServer *self, void* mem, size_t mem_size);
+void kiro_server_realloc (KiroServer *server, void* mem, size_t mem_size);
 
 
 /**
- * kiro_server_stop - Stops the server
+ * kiro_server_stop:
  * @server: #KiroServer to perform the operation on
- * Description:
+ *
  *   Stops the given #KiroServer
+ *
  * See also:
  *   kiro_server_start
  */
