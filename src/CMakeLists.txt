@@ -43,8 +43,8 @@ if (GOBJECT_INTROSPECTION_FOUND)
     if (WITH_GIR)
         find_program(INTROSPECTION_SCANNER "g-ir-scanner")
         find_program(INTROSPECTION_COMPILER "g-ir-compiler")
-        pkg_check_variable(gobject-introspection-1.0 g_ir_scanner)
-        pkg_check_variable(gobject-introspection-1.0 g_ir_compiler)
+        #pkg_check_variable(gobject-introspection-1.0 g_ir_scanner)
+        #pkg_check_variable(gobject-introspection-1.0 g_ir_compiler)
 
         set(GIR_PREFIX "Kiro-${LIBKIRO_ABI_VERSION}.0")
         set(GIR_XML "${GIR_PREFIX}.gir")
@@ -55,8 +55,8 @@ if (GOBJECT_INTROSPECTION_FOUND)
             list(APPEND _gir_input "${CMAKE_CURRENT_SOURCE_DIR}/${_src}")
         endforeach()
 
-        #list(APPEND _gir_input "${CMAKE_CURRENT_BINARY_DIR}/kiro-enums.h")
-        #list(APPEND _gir_input "${CMAKE_CURRENT_BINARY_DIR}/kiro-enums.c")
+        list(APPEND _gir_input "${CMAKE_CURRENT_BINARY_DIR}/kiro-enums.h")
+        list(APPEND _gir_input "${CMAKE_CURRENT_BINARY_DIR}/kiro-enums.c")
 
         add_custom_command(OUTPUT ${GIR_XML}
             COMMAND ${INTROSPECTION_SCANNER}
