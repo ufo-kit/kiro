@@ -10,7 +10,7 @@ set(LIBKIRO_VERSION_PATCH "0")
 set(LIBKIRO_VERSION_RELEASE "9")
 set(LIBKIRO_VERSION_STRING "${LIBKIRO_VERSION_MAJOR}.${LIBKIRO_VERSION_MINOR}.${LIBKIRO_VERSION_PATCH}")
 set(VERSION "${LIBKIRO_VERSION_STRING}")
-set(LIBKIRO_DESCRIPTION "Small InfiniBand communication Server and Client")
+set(LIBKIRO_DESCRIPTION "Small InfiniBand communication library")
 
 # Increase the ABI version when binary compatibility cannot be guaranteed, e.g.
 # symbols have been removed, function signatures, structures, constants etc.

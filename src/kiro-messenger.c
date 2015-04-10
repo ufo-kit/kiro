@@ -16,17 +16,6 @@
    Franklin St, Fifth Floor, Boston, MA 02110, USA
 */
 
-/**
- * SECTION: kiro-messenger
- * @Short_description: KIRO RDMA Messenger
- * @Title: KiroMessenger
- *
- * KiroMessenger implements a generic messenging interface for KIRO RDMA
- * communication. A messenger can be started either as listening or connecting
- * side. However, after connecting, both sides are identical in functionality.
- * Messenger connections are allways only single-point-to-point.
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
