@@ -181,9 +181,9 @@ void    kiro_sb_clear_sync_callbacks (KiroSb *sb);
  * kiro_sb_serve:
  * @sb: (transfer none): The #KiroSb to perform this operation on
  * @size: Size in bytes of the content that will be served
- * @addr: Optional address parameter to define where to listen for new
- * connections.
- * @port: Optional port to listen on for new connections
+ * @addr: (transfer none): Optional address parameter to define where to
+ * listen for new connections.
+ * @port: (transfer none): Optional port to listen on for new connections
  *
  *   Allows other remote #KiroSbs to connect to this #KiroSb and clone its
  *   memory. The internal memory is initially empty. Use the kiro_sb_push or
@@ -206,8 +206,10 @@ gboolean    kiro_sb_serve           (KiroSb *sb, gulong size, const gchar *addr,
 /**
  * kiro_sb_clone:
  * @sb: (transfer none): The #KiroSb to perform this operation on
- * @address: The InfiniBand address of the remote #KiroSb which should be cloned
- * @port: The InfiniBand port of the remote #KiroSb which should be cloned
+ * @address: (transfer none): The InfiniBand address of the remote #KiroSb
+ * which should be cloned
+ * @port: (transfer none): The InfiniBand port of the remote #KiroSb which
+ * should be cloned
  *
  *   Connects to the remote #KiroSb given by @address and @port and
  *   continuousely clones its content into the local #KiroSb
@@ -303,7 +305,7 @@ void*   kiro_sb_get_data_blocking  (KiroSb *sb);
 /**
  * kiro_sb_push:
  * @sb: (transfer none) The #KiroSb to get the data from
- * @data: (transfer none) void pointer to copy data from
+ * @data: (transfer none) (type gulong): void pointer to copy data from
  *
  *   Updates the internal memory by memcopy()-ing the given element into it.
  *   This operation is only valid for 'serving' #KiroSb. Calling this function

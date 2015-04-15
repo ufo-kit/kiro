@@ -150,7 +150,7 @@ uint64_t kiro_trb_get_raw_size (KiroTrb *trb);
  *
  *   Returns a pointer to the memory structure of the given buffer.
  *
- * Returns: (transfer none): a pointer to the buffer memory
+ * Returns: (transfer none) (type gulong): a pointer to the buffer memory
  * Notes:
  *   The returned pointer points to the beginning of the internal
  *   memory of the buffer, including all header information. The
@@ -177,7 +177,8 @@ void* kiro_trb_get_raw_buffer (KiroTrb *trb);
  *
  *   Returns a pointer to the element in the buffer at the given index.
  *
- * Returns: (transfer none): a pointer to the element at the given index.
+ * Returns: (transfer none) (type gulong): 
+ *   A pointer to the element at the given index.
  * Notes:
  *   The returned pointer to the element is only guaranteed to be valid
  *   immediately after the function call. The user is responsible to
@@ -203,7 +204,8 @@ void* kiro_trb_get_element (KiroTrb *trb, glong index);
  *   all internal counters and meta data as if an element was pushed
  *   onto the buffer.
  *
- * Returns: (transfer none): Pointer to the bginning of element memory
+ * Returns: (transfer none) (type gulong):
+ *   Pointer to the bginning of element memory
  * Notes:
  *   The returned pointer to the element is only guaranteed to be valid
  *   immediately after the function call. The user is responsible to
@@ -298,7 +300,8 @@ int kiro_trb_reshape (KiroTrb *trb, uint64_t element_size, uint64_t element_coun
 /**
  * kiro_trb_clone:
  * @trb: (transfer none); #KiroTrb to perform the operation on
- * @source: Pointer to the source memory to clone from
+ * @source: (transfer none) (type gulong):
+ *   Pointer to the source memory to clone from
  *
  *   Interprets the given memory as a pointer to another KIRO TRB and
  *   tries to copy that memory into its own.
@@ -321,7 +324,8 @@ int kiro_trb_clone (KiroTrb *trb, void *source);
 /**
  * kiro_trb_push:
  * @trb: (transfer none): #KiroTrb to perform the operation on
- * @source: Pointer to the memory of the element to add
+ * @source: (transfer none) (type gulong): 
+ *   Pointer to the memory of the element to add
  *
  *   Copies the given element and adds it into the buffer
  *
@@ -361,7 +365,8 @@ void kiro_trb_refresh (KiroTrb *trb);
 /**
  * kiro_trb_adopt:
  * @trb: (transfer none): #KiroTrb to perform the operation on
- * @source: Pointer to the source memory to adopt
+ * @source: (transfer full) (type gulong):
+ *   Pointer to the source memory to adopt
  *
  *   Interprets the given memory as a pointer to another KIRO TRB and
  *   takes ownership over the memory.

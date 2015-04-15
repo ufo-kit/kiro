@@ -98,9 +98,9 @@ void         kiro_server_free                (KiroServer *server);
 /**
  * kiro_server_start:
  * @server: #KiroServer to perform the operation on
- * @bind_addr: Local address to bind the server to
- * @bind_port: Local port to listen for connections
- * @mem: (transfer none): Pointer to the memory that is to be provided
+ * @bind_addr (transfer none): Local address to bind the server to
+ * @bind_port (transfer none): Local port to listen for connections
+ * @mem: (transfer none) (type gulong): Pointer to the memory that is to be provided
  * @mem_size: Size in bytes of the given memory
  *
  *   Starts the #KiroServer to provide the given memory to any connecting
@@ -124,7 +124,7 @@ int kiro_server_start (KiroServer *server, const char *bind_addr, const char *bi
 /**
  * kiro_server_realloc:
  * @server: #KiroServer to perform the operation on
- * @mem: (transfer none): Pointer to the memory that is to be provided
+ * @mem: (transfer none) (type gulong): Pointer to the memory that is to be provided
  * @mem_size: Size in bytes of the given memory
  *
  *   Changes the memory that is provided by the server. All connected clients
