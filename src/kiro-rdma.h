@@ -77,8 +77,6 @@ struct kiro_ctrl_msg {
         KIRO_REQ_RDMA,                              // Requesting RDMA Access to/from the peer
         KIRO_ACK_RDMA,                              // acknowledge RDMA Request and provide Memory Region Information
         KIRO_REJ_RDMA,                              // RDMA Request rejected :(  (peer_mri will be invalid)
-        KIRO_RDMA_DONE,                             // Used to signal RDMA transfer success for the KiroMessenger
-        KIRO_RDMA_CANCEL,                           // Used to cancel pending RDMA transfer in KiroMessenger
         KIRO_PING,                                  // PING Message
         KIRO_PONG,                                  // PONG Message (PING reply)
         KIRO_REALLOC                                // Used by the server to notify the client about a new peer_mri
