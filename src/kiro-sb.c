@@ -176,7 +176,7 @@ idle_func (KiroSbPrivate *priv)
     gulong old_offset = header->offset;
     kiro_client_sync_partial (priv->client, 0, sizeof(struct KiroTrbInfo), 0);
     kiro_trb_refresh (priv->trb);
-    if (((old_offset != header->offset) || TRUE) && 0 < header->offset) {
+    if ((old_offset != header->offset) && 0 < header->offset) {
         gulong offset = (gulong) (kiro_trb_get_element (priv->trb, -1) - kiro_trb_get_raw_buffer (priv->trb));
         kiro_client_sync_partial (priv->client, offset, kiro_trb_get_element_size (priv->trb), offset);
         g_hook_list_invoke_check (&(priv->callbacks), FALSE);
@@ -302,10 +302,10 @@ kiro_sb_push (KiroSb *self, void *data_in)
 void *
 kiro_sb_push_dma (KiroSb *self)
 {
-    g_return_val_if_fail (self != NULL, FALSE);
+    g_return_val_if_fail (self != NULL, NULL);
 
     KiroSbPrivate *priv = KIRO_SB_GET_PRIVATE (self);
-    g_return_val_if_fail (priv->initialized == 1, FALSE);
+    g_return_val_if_fail (priv->initialized == 1, NULL);
 
     return kiro_trb_dma_push (priv->trb);
 }

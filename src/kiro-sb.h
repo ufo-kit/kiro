@@ -268,7 +268,8 @@ void     kiro_sb_thaw         (KiroSb *sb);
  *   Data might either change by pushing (in case of a 'serving' #KiroSb) or
  *   after (automatic or manual) syncing (in case of a 'cloning' #KiroSb).
  *
- * Returns: (transfer none): A void pointer the stored data
+ * Returns: (transfer none) (type gulong):
+ *   A void pointer the stored data
  * Note:
  *   The returned pointer to the element might become invalid at any time by
  *   automatic or manual sync. Under no circumstances might the returned pointer
@@ -287,7 +288,7 @@ void*   kiro_sb_get_data     (KiroSb *sb);
  *   Calling this function will do the same thing as kiro_sb_get_data, but it
  *   will internaly wait until new data has arived before returning it.
  *
- * Returns: (transfer none): A void pointer the stored data
+ * Returns: (transfer none) (type gulong): A void pointer the stored data
  * Note:
  *   The returned pointer to the element might become invalid at any time by
  *   automatic or manual sync. Under no circumstances might the returned pointer
@@ -325,7 +326,8 @@ gboolean kiro_sb_push       (KiroSb *sb, void *data);
  *   This operation is only valid for a 'serving' #KiroSb. Calling this
  *   function on a 'cloning' #KiroSb will allways return a %NULL pointer.
  *
- * Returns: (transfer none): A pointer to the memory where the new data should be stored
+ * Returns: (transfer none) (type gulong):
+ *   A pointer to the memory where the new data should be stored
  * Note:
  *   It is the users responsibility to ensure no more data is written to the
  *   pointed memory then was specified with the initial call to kiro_sb_serve or
