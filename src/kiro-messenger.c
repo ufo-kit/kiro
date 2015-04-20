@@ -421,14 +421,14 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
                         goto reject;
                     }
 
-                    struct ibv_wc wc;
-                    if (rdma_get_send_comp (conn, &wc) < 0) {
+                    struct ibv_wc send_wc;
+                    if (rdma_get_send_comp (conn, &send_wc) < 0) {
                         g_critical ("No send completion for RDMA_WRITE received: %s", strerror (errno));
                         kiro_destroy_rdma_memory (rdma_data_in);
                         goto reject;
                     }
 
-                    switch (wc.status) {
+                    switch (send_wc.status) {
                         case IBV_WC_SUCCESS:
                             g_debug ("Message RDMA read successful");
                             msg_out->msg_type = KIRO_ACK_RDMA;
@@ -442,7 +442,7 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
                             goto reject;
                             break;
                         default:
-                            g_critical ("Could not read message data from the peer. Status %u", wc.status);
+                            g_critical ("Could not read message data from the peer. Status %u", send_wc.status);
                             goto reject;
                     }
 
