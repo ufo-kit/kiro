@@ -5,8 +5,8 @@ KIRO is the KITs InfiniBand remote communication library.
 It provides a simple server and client class that can be used to pass arbitrary
 information from the server to the client using _native_ InfiniBand
 communication.
-It also provides a network transmittable ring-buffer (TRB) which can be used as
-a transmission container for same-sized objects.
+It also provides a network transmittable ring-buffer (KIRO-TRB) which can be used as
+a transmission container for same-sized objects and a (uni directional) self-synchronizing buffer (KIRO-SB) which can be used to automatically keep a local object in sync with a shared remote object.
 
 The library is optimized for speed and ease of use.
 
@@ -22,7 +22,7 @@ Usage
 
 Example KIRO server usage
 
-```
+```C
 #include <kiro-server.h>
 ...
 
@@ -45,7 +45,7 @@ kiro_server_free (server);
 ```
 
 Example KIRO client usage
-```
+```C
 #include <kiro-client.h>
 ...
 
