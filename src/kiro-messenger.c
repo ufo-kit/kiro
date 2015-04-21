@@ -334,6 +334,7 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
             g_debug ("Got a stub message from the peer.");
             struct kiro_ctrl_msg *reply = (struct kiro_ctrl_msg *) (ctx->cf_mr_send->mem);
             reply->msg_type = KIRO_REJ_RDMA;
+            reply->peer_mri = msg_in->peer_mri;
 
             struct KiroMessage *msg_out = NULL;
             if (!priv->rec_callbacks.hooks) {
@@ -352,7 +353,6 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
 
                     g_debug ("Sending ACK message");
                     reply->msg_type = KIRO_ACK_MSG;
-                    reply->peer_mri.handle = msg_in->peer_mri.handle;
                 }
             }
 
@@ -490,8 +490,8 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
                 g_debug ("But there is no pending message...");
                 goto done;
             }
-            else if (!(priv->message->handle == msg_in->peer_mri.handle)) {
-                g_debug ("But REJ is for the wrong message...");
+            else if (priv->message->handle != msg_in->peer_mri.handle) {
+                g_debug ("But REJ is for the wrong message... (Handle expected: %i)", priv->message->handle);
                 goto done;
             }
             else {
