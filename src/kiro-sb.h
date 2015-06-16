@@ -340,6 +340,31 @@ gboolean kiro_sb_push       (KiroSb *sb, void *data);
  */
 void* kiro_sb_push_dma      (KiroSb *sb);
 
+/**
+ * kiro_sb_get_dma_pointer:
+ * @sb: (transfer none) The #KiroSb to get the data from
+ *
+ *   Returns a pointer where the next element will be stored.
+ *   This operation is only valid for a 'serving' #KiroSb. Calling this
+ *   function on a 'cloning' #KiroSb will allways return a %NULL pointer.
+ *
+ * Returns: (transfer none) (type gulong):
+ *   A pointer to the memory where the next element will be stored
+ * Note:
+ *   This function can be used to preemtively write data to the @sb without
+ *   advancing the internal buffer (no remote sync will occur).  It is the users
+ *   responsibility to ensure no more data is written to the pointed memory then
+ *   was specified with the initial call to kiro_sb_serve or returned by
+ *   kiro_sb_get_size.  Under no circumstances might the returned pointer be
+ *   freed by the user.  Once the element has been written, you can use
+ *   kiro_sb_push_dma() to advance the buffer, making the remote side aware of
+ *   the new element.
+ * See also:
+ *   kiro_sb_get_size, kiro_sb_serve
+ *
+ * Since: 1.3
+ */
+void* kiro_sb_get_dma_pointer     (KiroSb *sb);
 
 G_END_DECLS
 

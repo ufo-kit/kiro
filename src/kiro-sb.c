@@ -274,15 +274,10 @@ kiro_sb_get_data (KiroSb *self)
     KiroSbPrivate *priv = KIRO_SB_GET_PRIVATE (self);
 
     struct KiroTrbInfo *header = kiro_trb_get_raw_buffer (priv->trb);
-    switch (header->offset) {
-        case 0:
-            return kiro_trb_get_element (priv->trb, 0);
-            break;
-        case 1:
-            return kiro_trb_get_element (priv->trb, 1);
-            break;
-        default:
-            return kiro_trb_get_element (priv->trb, -1);
+    if (header->offset > 0) {
+        return kiro_trb_get_element (priv->trb, 1);
+    } else {
+        return kiro_trb_get_element (priv->trb, 0);
     }
 }
 
@@ -308,6 +303,17 @@ kiro_sb_push_dma (KiroSb *self)
     g_return_val_if_fail (priv->initialized == 1, NULL);
 
     return kiro_trb_dma_push (priv->trb);
+}
+
+void *
+kiro_sb_get_dma_pointer (KiroSb *self)
+{
+    g_return_val_if_fail (self != NULL, NULL);
+
+    KiroSbPrivate *priv = KIRO_SB_GET_PRIVATE (self);
+    g_return_val_if_fail (priv->initialized == 1, NULL);
+
+    return kiro_trb_get_element (priv->trb, -1);
 }
 
 
