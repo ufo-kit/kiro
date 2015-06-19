@@ -7,26 +7,33 @@
 #include <unistd.h>
 
 gboolean
-grab_message (struct KiroMessage *msg, gpointer user_data)
+grab_message (KiroMessageStatus *status, gpointer user_data)
 {
-    gboolean *flag = (gboolean *)user_data;
-    g_message ("Message received! Type: %u, Content: %s", msg->msg, (gchar *)(msg->payload));
-    msg->message_handled = TRUE;
-    *flag = TRUE;
-    return TRUE;
+    gulong *rank = (gulong *)user_data;
+    g_message ("Message received! Type: %u, Content: %s", status->message->msg, (gchar *)(status->message->payload));
+    *rank = status->message->peer_rank;
+    return KIRO_CALLBACK_CONTINUE;
 }
 
 
 gboolean
-message_was_sent (struct KiroMessage *msg, gpointer user_data)
+message_was_sent (KiroMessageStatus *status, gpointer user_data)
 {
     gboolean *flag = (gboolean *)user_data;
-    if (msg->status == KIRO_MESSAGE_SEND_SUCCESS)
+    if (status->status == KIRO_MESSAGE_SEND_SUCCESS)
         g_message ("Message was sent successfully");
     else
         g_message ("Message sending failed");
     *flag = TRUE;
-    return FALSE;
+    return KIRO_CALLBACK_REMOVE;
+}
+
+KiroContinueFlag
+connect_callback (gulong new_rank, gpointer user_data)
+{
+    (void) user_data;
+    printf ("New peer with rank '%lu' connected\n", new_rank);
+    return KIRO_CALLBACK_CONTINUE;
 }
 
 
@@ -63,51 +70,61 @@ main ( int argc, char *argv[] )
 
     KiroMessenger *messenger = kiro_messenger_new ();
 
-    enum KiroMessengerType type = (server) ? KIRO_MESSENGER_SERVER : KIRO_MESSENGER_CLIENT;
+    gulong rank = 0;
+    if (server)
+        kiro_messenger_start_listen (messenger, argv[1], "60010", connect_callback, NULL, &error);
+    else
+        kiro_messenger_connect (messenger, argv[1], "60010", &rank, &error);
 
-    if (-1 == kiro_messenger_start (messenger, argv[1], "60010", type)) {
+    if (error) {
+        printf ("Failed to start Kiro Messenger!\nError: '%s'\n", error->message);
         kiro_messenger_free (messenger);
         return -1;
     }
 
-    if (type == KIRO_MESSENGER_CLIENT) {
-        struct KiroMessage msg;
+    if (!server) {
+        KiroMessage msg;
         GString *str = g_string_new (argv[2]);
         msg.msg = 42;
+        msg.size = str->len + 1; // respect the NULL byte */
         msg.payload = str->str;
-        msg.size = str->len + 1; // respect the NULL byte
+        msg.peer_rank = 1;
 
         gboolean can_leave = FALSE;
-        kiro_messenger_add_send_callback (messenger, message_was_sent, &can_leave);
 
-        if (0 > kiro_messenger_submit_message (messenger, &msg, TRUE))
-            printf ("Sending failed...");
+        if (!kiro_messenger_send_with_callback (messenger, &msg, message_was_sent, &can_leave, &error)) {
+            printf ("Sending failed: '%s'\n", error->message);
+            goto done;
+        }
         else
             printf ("Message submitted successfully\n");
-        while (!can_leave) {}
+
+        while (can_leave == FALSE) {}
         can_leave = FALSE;
         kiro_messenger_add_receive_callback (messenger, grab_message, &can_leave);
         while (!can_leave) {}
     }
     else {
-        gboolean answer = FALSE;
-        kiro_messenger_add_receive_callback (messenger, grab_message, &answer);
+        gulong sender_rank = 0;
+        kiro_messenger_add_receive_callback (messenger, grab_message, &sender_rank);
         g_message ("Messenger started. Waiting for incoming messages.");
         while (1) {
-            while (!answer) {};
-            struct KiroMessage *msg = g_malloc0 (sizeof (struct KiroMessage));
-            msg->msg = 1337;
-            msg->payload = g_strdup ("Echo");
-            msg->size = 5; // respect the NULL byte
-            kiro_messenger_submit_message (messenger, msg, TRUE);
-            answer = FALSE;
+            while (sender_rank == 0) {};
+            printf ("Sending Echo...\n");
+            KiroMessage msg;
+            msg.msg = 1337;
+            msg.payload = g_strdup ("Echo");
+            msg.size = 5; // respect the NULL byte
+            msg.peer_rank = sender_rank;
+            kiro_messenger_send_blocking (messenger, &msg, &error);
+            sender_rank = 0;
         }
     }
 
+done:
     kiro_messenger_free (messenger);
     return 0;
 }
-
 
 
 

@@ -47,21 +47,16 @@ typedef struct _KiroMessenger           KiroMessenger;
 typedef struct _KiroMessengerClass      KiroMessengerClass;
 typedef struct _KiroMessengerPrivate    KiroMessengerPrivate;
 
+enum {
+    KIRO_MESSENGER_ERROR
+} KiroMessengerError;
+
+GQuark kiro_messenger_get_error_quark (void);
+#define KIRO_MESSENGER_ERROR kiro_messenger_get_error_quark()
+
 typedef gboolean KiroContinueFlag;
 #define KIRO_CALLBACK_CONTINUE TRUE
 #define KIRO_CALLBACK_REMOVE FALSE
-
-enum KiroMessengerType {
-    KIRO_MESSENGER_SERVER = 0,
-    KIRO_MESSENGER_CLIENT
-};
-
-enum KiroMessageStatus {
-    KIRO_MESSAGE_PENDING = 0,
-    KIRO_MESSAGE_SEND_SUCCESS,
-    KIRO_MESSAGE_SEND_FAILED,
-    KIRO_MESSAGE_RECEIVED
-};
 
 
 struct _KiroMessenger {
@@ -79,14 +74,32 @@ struct _KiroMessengerClass {
 
 };
 
-struct KiroMessage {
-    enum KiroMessageStatus status; // Status of the message
-    guint64     id;           // Unique ID of the message. This may not be changed by the user
-    guint32     msg;          // Space for application specific message semantics 
-    guint64     size;         // Size of the messages payload in bytes
-    gpointer    payload;      // Pointer to the payload of the message
-    gboolean    message_handled; // FALSE initially, TRUE once the message was handled
-};
+typedef struct {
+    guint32     msg;        // Space for application specific message semantics
+    guint64     size;       // Size of the messages payload in bytes
+    gpointer    payload;    // Pointer to the payload of the message
+    gulong      peer_rank;  // Rank/local-id of the destination or sender
+} KiroMessage;
+
+
+typedef enum {
+    KIRO_REJ_ALREADY_SENDING = 0,
+    KIRO_REJ_PEER_NOT_LISTENING,
+    KIRO_REJ_PEER_BUSY
+} KiroMessageRejectCode;
+
+
+typedef struct {
+    enum trasnmission_status {
+        KIRO_MESSAGE_PENDING = 0,
+        KIRO_MESSAGE_SEND_SUCCESS,
+        KIRO_MESSAGE_SEND_FAILED,
+        KIRO_MESSAGE_RECEIVED
+    } status;
+    KiroMessageRejectCode rej_reason;  // -1 if message was not rejected
+    KiroMessage         *message;
+    gboolean            request_cleanup;
+} KiroMessageStatus;
 
 
 /* GObject and GType functions */
@@ -99,9 +112,9 @@ GType        kiro_messenger_get_type            (void);
  *
  * Returns: (transfer full): A pointer to a new #KiroMessenger
  * See also:
- *   kiro_messenger_start, kiro_messenger_free
+ *   kiro_messenger_free
  */
-KiroMessenger*  kiro_messenger_new                (void);
+KiroMessenger* kiro_messenger_new (void);
 
 /**
  * kiro_messenger_free:
@@ -111,29 +124,44 @@ KiroMessenger*  kiro_messenger_new                (void);
  *   frees the object memory.
  *
  * See also:
- *   kiro_messenger_start, kiro_messenger_new
+ *   kiro_messenger_new
  */
-void         kiro_messenger_free                (KiroMessenger *messenger);
+void kiro_messenger_free (KiroMessenger *messenger);
 
 
 /* messenger functions */
 
 /**
- * kiro_messenger_start:
+ * KiroConnectCallbackFunc:
+ * @connection_rank: The rank/local-id of the new connection
+ * @user_data: (transfer none): The #user_data which was provided during
+ * registration of this callback
+ *
+ *   Defines the type of a callback function which will be invoked each time
+ *   a new peer connects to the messenger
+ *
+ * Returns: A #KiroContinueFlag. KIRO_CALLBACK_REMOVE will cause the
+ * #KiroMessenger to stop listening and automatically deregister this callback.
+ * See also:
+ *   kiro_messenger_start_listen
+ */
+typedef KiroContinueFlag (*KiroConnectCallbackFunc) (gulong connection_rank, void *user_data);
+
+/**
+ * kiro_messenger_start_listen:
  * @messenger: #KiroMessenger to perform the operation on
- * @bind_addr: Local address to bind the messenger to
- * @bind_port: Local port to listen for connections
- * @role: A #KiroMessengerType which is used to decide the role of this
- * messenger
- *   Starts the #KiroMessenger with the given role. When @role is given as
+ * @bind_addr: (allow-none): Local address to bind the messenger to
+ * @bind_port: (allow-none): Local port to listen for connections
+ * @connect_callback: (scope call): Callback to notify about new connection
+ * @user_data: (transfer none): Data to pass to the @connect_callback on call
+ * @error: (allow-none): A #GError, used for error reporting
  *
- *   KIRO_MESSENGER_SERVER, the messenger will open an InfiniBand connection and
- *   listen for the first client that tries to connect. When given
- *   KIRO_MESSENGER_CLIENT, the messenger will instead try to connect to to the
- *   given address.
+ *   The messenger will open an InfiniBand connection and listen for incoming
+ *   client connections. The @connect_callback will be invoked each time a peer
+ *   connects to this @messenger and will be passed the new rank/local-id of the
+ *   connected peer.
  *
- * Returns: An integer denoting success of this function. 0 for success, -1
- * otherwise
+ * Returns: The port the messenger was bound to. -1 in case of error.
  * Notes:
  *   If the bind_addr is NULL, the messenger will bind to the first device
  *   it can find on the machine and listen across all IPs. Otherwise it
@@ -143,145 +171,177 @@ void         kiro_messenger_free                (KiroMessenger *messenger);
  *   If bind_port is NULL the messenger will choose a free port randomly
  *   and return the chosen port as return value.
  * See also:
- *   kiro_messenger_new,
+ *   kiro_messenger_stop_listen, kiro_messenger_disconnect
  */
-int kiro_messenger_start (KiroMessenger *messenger, const char *bind_addr, const char *bind_port, enum KiroMessengerType role);
-
+int kiro_messenger_start_listen (KiroMessenger *messenger,
+                                 const char *bind_addr,
+                                 const char *bind_port,
+                                 KiroConnectCallbackFunc connect_callback,
+                                 gpointer user_data,
+                                 GError **error);
 
 /**
- * KiroReceiveCallbackFunc:
- * @message: A pointer to the #KiroMessage that was received and/or sent
+ * kiro_messenger_stop_listen:
+ * @messenger: #KiroMessenger to perform the operation on
+ *
+ *   Stops the given #KiroMessenger from listening so new incoming connections
+ *   will be accepted. The callback which was registered upon the call to
+ *   kiro_messenger_start_listen will automatically be deregisterd.
+ *
+ * Notes:
+ *   If the given #KiroMessenger is not currently listening or %NULL, this
+ *   function will simply return.
+ * See also:
+ *   kiro_messenger_start_listen
+ */
+void kiro_messenger_stop_listen (KiroMessenger *messenger, GError **error);
+
+/**
+ * kiro_messenger_connect:
+ * @messenger: #KiroMessenger to perform the operation on
+ * @remote_addr: Remote address to connect the messenger to
+ * @remote_port: Remote port to connect the messenger to
+ * @connection_rank (out): Storage for the rank/local-id of the new connection
+ * @error: (allow-none): A #GError, used for error reporting
+ *
+ *   The messenger will open an InfiniBand connection and try to connect to the
+ *   given @remote_addr and @remote_port. If successfull, the rank/local-id of
+ *   the new connection will be stored in @connection_rank.
+ *
+ * See also:
+ *   kiro_messenger_disconnect
+ */
+void kiro_messenger_connect (KiroMessenger *messenger,
+                             const gchar *remote_addr,
+                             const gchar *remote_port,
+                             gulong *connection_rank,
+                             GError **error);
+
+/**
+ * KiroMessageCallbackFunc: (skip)
+ * @status: A pointer to the #KiroMessageStatus about the handled message.
  * @user_data: (transfer none): The #user_data which was provided during
  * registration of this callback
  *
- *   Defines the type of a callback function which will be invoked every time
- *   the messenger has sent received a message
+ *   Defines the type of a callback function used in the #KiroMessenger send and
+ *   receive mechanisms.
  *
  * Returns: A #KiroContinueFlag
  * Note:
+ *   All #KiroMessageCallbackFunc implementations need to be aware that the
+ *   pointer to the #KiroMessage in the #KiroMessageStatus struct may have been
+ *   set to %NULL by any previous callback to signify that the message was
+ *   already taken care of.
+ *   For the receive callback, a "request_cleanup" field is provided in the
+ *   #KiroMessageStatus struct which can be used to instruct the #KiroMessenger
+ *   to take care of the cleanup of the received #KiroMessage and its payload.
+ *   When this flag is set to %TRUE, the received data might become unavailable
+ *   at any time and might no longer be used by the user. The default value for
+ *   this flag is set to %FALSE, so the user implementation needs to take care
+ *   to g_free() the message payload when it is no longer needed.
+ *
  *   Returning %FALSE or %KIRO_CALLBACK_REMOVE will automatically remove the callback
  *   from the internal callback list. Return %TRUE or %KIRO_CALLBACK_CONTINUE if you
  *   want to keep the callback active.
- *   A receive callback function needs to set the "message_handled" flag correctly, if
- *   it has taken the messages content and set the "payload" pointer in the
- *   message struct to %NULL. Otherweise, the messages payload will be freed
- *   once all callbacks were invoked.
- *   In case of a send callback, the message payload will only be freed if the
- *   'take_ownership' flag in the 'kiro_messenger_submit_message' was set to
- *   %TRUE. If the flag was set to %FALSE, the "message_handled" flag is ignored
- *   by the callback mechanism and the message payload will never be freed.
- *   If the callback receives a message which already has the "message_handled"
- *   flag set, it can safely ignore the message and just return.
- *   A callback may under no circumstances free the given message construct.
+ *
+ *
  * See also:
  *   kiro_messenger_add_receive_callback, kiro_messenger_remove_receive_callback,
  *   kiro_messenger_add_send_callback, kiro_messenger_remove_send_callback
  */
-typedef KiroContinueFlag (*KiroMessengerCallbackFunc)   (struct KiroMessage *message, void *user_data);
+typedef KiroContinueFlag (*KiroMessageCallbackFunc) (KiroMessageStatus *status, void *user_data);
 
 /**
  * kiro_messenger_add_receive_callback:
  * @messenger: #KiroMessenger to perform this operation on
- * @callback: (scope call): Pointer to a #KiroReceiveCallbackFunc that will be invoked when a
- * messege is received
+ * @callback: (scope call): Pointer to a #KiroReceiveCallbackFunc that will be
+ * invoked when a message was received
  * @user_data: Pointer to user data that will be passed to the callback function
- *   
- *   Registers the given callback function to be invoked every time the
- *   messenger receives a message.
  *
- * Returns: Integer ID of the registered callback.
+ *   Registers the given callback function to be invoked every time the
+ *   messenger receives a message. Only one callback handler can be installed at
+ *   any given time. If data needs to be distributed across multiple
+ *   recipients, the callback implementation needs to take care of this.
+ *   All incoming messages will automatically be rejected by the messenger
+ *   unless a receive callback is registered at the time the message arrives.
+ *
+ * Returns: %TRUE if the callback was registered successfully, %FALSE in case of
+ * error.
+ *
  * See also:
  *   kiro_messenger_remove_receive_callback
  */
-gulong kiro_messenger_add_receive_callback (KiroMessenger *messenger, KiroMessengerCallbackFunc callback, void *user_data);
+gboolean kiro_messenger_add_receive_callback (KiroMessenger *messenger,
+                                              KiroMessageCallbackFunc callback,
+                                              void *user_data);
 
 /**
  * kiro_messenger_remove_receive_callback:
  * @messenger: #KiroMessenger to perform this operation on
- * @callback_id: ID of the callback that should be removed
  *
- *   Removes the callback with the given ID.
+ *   Removes the registerd receive callback.
  *
  * Returns: %TRUE on success %FALSE in case of error
  * See also:
  *   kiro_messenger_add_receive_callback
  */
-gboolean kiro_messenger_remove_receive_callback (KiroMessenger *messenger, gulong callback_id);
+gboolean kiro_messenger_remove_receive_callback (KiroMessenger *messenger);
+
 
 /**
  * kiro_messenger_add_send_callback:
  * @messenger: #KiroMessenger to perform this operation on
- * @callback: (scope call): Pointer to a #KiroSendCallbackFunc that will be invoked when a
- * messege was sent
+ * @message: The #KiroMessage to send
+ * @callback: (scope call): Pointer to a #KiroSendCallbackFunc that will be
+ * invoked after message send.
  * @user_data: Pointer to user data that will be passed to the callback function
+ * @error: (allow-none): A #GError, used for error reporting
  *
- *   Registers the given callback function to be invoked every time the
- *   messenger has sent a message.
+ *   Tries to send the given @message to the peer spcified in the #KiroMessage
+ *   struct. A pointer to a corresponding #KiroMessageStatus container will be
+ *   passed to the given callback once the message has beend sent either
+ *   successfully or not. The success of the transmission can be seen in the
+ *   #KiroMessageStatus container.
  *
- * Returns: Integer ID of the registered callback.
+ * Returns: A #GBoolean. %TRUE if the @message was submitted successfully,
+ * %FALSE in case of an error. See the provided @error for details.
+ *
  * Note:
- *   A pointer to the message that has been sent will be passed to all
- *   registered callbacks one by one. The message container and all of its data
- *   will not be feed after all callbacks have been invoked. The user
- *   implementation needs to take care of this.
+ *   The @message container and all of its data will not be freed
+ *   after the callbacks has been invoked. The user implementation needs to
+ *   take care of this.
  * See also:
- *   kiro_messenger_remove_send_callback
+ *   kiro_messenger_send_blocking
  */
-gulong kiro_messenger_add_send_callback (KiroMessenger *messenger, KiroMessengerCallbackFunc callback, void *user_data);
-
-/**
- * kiro_messenger_remove_send_callback:
- * @messenger: #KiroMessenger to perform this operation on
- * @callback_id: ID of the callback that should be removed
- *
- *   Removes the callback with the given ID.
- *
- * Returns: %TRUE on success %FALSE in case of error
- * See also:
- *   kiro_messenger_send_receive_callback
- */
-gboolean kiro_messenger_remove_send_callback (KiroMessenger *messenger, gulong callback_id);
+gboolean kiro_messenger_send_with_callback (KiroMessenger *messenger,
+                                            KiroMessage *message,
+                                            KiroMessageCallbackFunc callback,
+                                            void *user_data,
+                                            GError **error);
 
 /**
  * kiro_messenger_submit_message:
  * @messenger: #KiroMessenger to use for sending the message
- * @message: Pointer to a #KiroMessage for sending
- * @take_ownership: Decide if the messenger will take ownership of the messag
- * data or the ownership should stay with the caller.
+ * @message: The #KiroMessage to send
+ * @error: (allow-none): A #GError, used for error reporting
  *
- *   Sends the given #KiroMessage to the remote side. The 'status' field of the
- *   #KiroMessage struct will be set to KIRO_MESSAGE_SEND_SUCCESS, once the
- *   message has been sent successfully, or to KIRO_MESSAGE_SEND_FAILED in case
- *   of an error.
- *   If the @take_ownership flag was set to %TRUE, the KiroMessenger will take
- *   ownership of the KiroMessage struct. It will then attempt to free it,
- *   including the message payload, after the message was sent, in accordance to
- *   the status of the "message_handled" flag of the created message, after all
- *   send callbacks have returned.  This mechanism can be used to realize a
- *   fire-and-forget mechanism where the user can be sure the message will be
- *   cleaned up automatically after it has been sent. If the @take_ownership is
- *   set to %FALSE, the KiroMessenger will not take ownership of the message and
- *   the message and its payload will not be freed after the callbacks have been
- *   invoked, regardles of the "message_handled" flag. The caller stays
- *   responsible to clean up the message sooner or later.
+ *   Sends the given #KiroMessage to the remote peer.
  *
- * Returns: 0 on success, -1 in case of error
- * Note:
- *   After the message was sent to the remote side, all of the registeres send
- *   callbacks will be invoked, regardless if the message was sent successfully
- *   or not. The status field in the message struct can be checked to see if the
- *   message was sent successfully.
+ * Returns: A #GBoolean. %TRUE when the @message was sent successfully, %FALSE
+ * in case of a transmission failure. See the provided @error for details.
+ *
+ * See also:
+ *   kiro_messenger_send_with_callback
  */
-int kiro_messenger_submit_message (KiroMessenger *messenger, struct KiroMessage *message, gboolean take_ownership);
+gboolean kiro_messenger_send_blocking (KiroMessenger *messenger,
+                                       KiroMessage *message,
+                                       GError **error);
 
 /**
  * kiro_messenger_stop:
  * @messenger: #KiroMessenger to perform the operation on
  *
- *   Stops the given #KiroMessenger
- *
- * See also:
- *   kiro_messenger_start
+ * Stops the given #KiroMessenger
  */
 void kiro_messenger_stop (KiroMessenger *messenger);
 

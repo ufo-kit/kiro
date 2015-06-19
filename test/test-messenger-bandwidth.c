@@ -7,15 +7,18 @@
 #include <unistd.h>
 
 KiroContinueFlag
-callback (struct KiroMessage *msg, gpointer user_data)
+callback (KiroMessageStatus *status, gpointer user_data)
 {
     gboolean *flag = (gboolean *)user_data;
-    msg->message_handled = TRUE;
-    if (msg->status == KIRO_MESSAGE_RECEIVED) {
-        free (msg->payload);
-        msg->payload = NULL;
-    }
+    status->request_cleanup = TRUE;
     *flag = TRUE;
+    return KIRO_CALLBACK_CONTINUE;
+}
+
+KiroContinueFlag
+conn_callback (gulong new_rank, gpointer user_data) {
+    (void) new_rank;
+    (void) user_data;
     return KIRO_CALLBACK_CONTINUE;
 }
 
@@ -32,7 +35,7 @@ main ( int argc, char *argv[] )
     static GOptionEntry entries[] = {
         { "server", 's', 0, G_OPTION_ARG_NONE, &server, "Start as server (listener)", NULL },
         { "iterations", 'i', 0, G_OPTION_ARG_INT, &iterations, "Number of iterations (1000 by default)", NULL },
-        { "server", 'b', 0, G_OPTION_ARG_INT, &size_mb, "Size in MB for each package (1 MB by default)", NULL },
+        { "sizemb", 'b', 0, G_OPTION_ARG_INT, &size_mb, "Size in MB for each package (1 MB by default)", NULL },
         { NULL }
     };
 
@@ -56,32 +59,41 @@ main ( int argc, char *argv[] )
 
     KiroMessenger *messenger = kiro_messenger_new ();
 
-    enum KiroMessengerType type = (server) ? KIRO_MESSENGER_SERVER : KIRO_MESSENGER_CLIENT;
+    if (server) {
+        kiro_messenger_start_listen (messenger, argv[1], "60010", conn_callback, NULL, &error);
+    }
+    else {
+        gulong rank = 0;
+        kiro_messenger_connect (messenger, argv[1], "60010", &rank, &error);
+    }
 
-    if (-1 == kiro_messenger_start (messenger, argv[1], "60010", type)) {
+    if (error) {
+        printf ("Error: %s\n", error->message);
         kiro_messenger_free (messenger);
         return -1;
     }
 
-    if (type == KIRO_MESSENGER_CLIENT) {
+
+    if (!server) {
         gulong size_bytes = size_mb * (1024 * 1024);
-        struct KiroMessage msg;
+        KiroMessage msg;
         msg.msg = 42;
         msg.payload = malloc (size_bytes);
         msg.size = size_bytes;
+        msg.peer_rank = 1;
 
         GTimer *timer = g_timer_new ();
-        gboolean transmitted = FALSE;
-        kiro_messenger_add_send_callback (messenger, callback, &transmitted);
-
         g_timer_reset (timer);
+
         for (gint i = 0; i < iterations; i++) {
-            if (0 > kiro_messenger_submit_message (messenger, &msg, TRUE)) {
+            if (0 > kiro_messenger_send_blocking (messenger, &msg, &error)) {
                 printf ("Sending failed...\n");
                 exit(-1);
             }
-            while (!transmitted) {}
-            transmitted = FALSE;
+            if (error) {
+                printf ("Error: %s\n", error->message);
+                exit (-1);
+            }
         }
         gdouble elapsed = g_timer_elapsed (timer, NULL);
         gdouble size_gb = (iterations * size_mb) / 1024.0;

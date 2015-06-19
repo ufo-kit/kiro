@@ -110,9 +110,11 @@ kiro_attach_qp (struct rdma_cm_id *id)
 
     id->pd = ibv_alloc_pd (id->verbs);
     id->send_cq_channel = ibv_create_comp_channel (id->verbs);
-    id->recv_cq_channel = ibv_create_comp_channel (id->verbs);
     id->send_cq = ibv_create_cq (id->verbs, 1, id, id->send_cq_channel, 0);
+
+    id->recv_cq_channel = ibv_create_comp_channel (id->verbs);
     id->recv_cq = ibv_create_cq (id->verbs, 1, id, id->recv_cq_channel, 0);
+    
     struct ibv_qp_init_attr qp_attr;
     memset (&qp_attr, 0, sizeof (struct ibv_qp_init_attr));
     qp_attr.qp_context = (void *) (uintptr_t) id;
@@ -124,6 +126,7 @@ kiro_attach_qp (struct rdma_cm_id *id)
     qp_attr.cap.max_send_sge = 1;
     qp_attr.cap.max_recv_sge = 1;
     qp_attr.sq_sig_all = 1;
+
     return rdma_create_qp (id, id->pd, &qp_attr);
 }
 
