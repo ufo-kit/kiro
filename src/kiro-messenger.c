@@ -153,9 +153,6 @@ kiro_messenger_finalize (GObject *object)
     //Clean up the server
     kiro_messenger_stop (self);
 
-    g_mutex_clear (&priv->connection_handling_lock);
-    g_mutex_clear (&priv->shutdown_lock);
-
     g_main_loop_quit (priv->main_loop);
     while (g_main_loop_is_running (priv->main_loop)) {};
     g_main_loop_unref (priv->main_loop);
@@ -163,6 +160,9 @@ kiro_messenger_finalize (GObject *object)
 
     g_thread_join (priv->main_thread);
     priv->main_thread = NULL;
+
+    g_mutex_clear (&priv->connection_handling_lock);
+    g_mutex_clear (&priv->shutdown_lock);
 
     G_OBJECT_CLASS (kiro_messenger_parent_class)->finalize (object);
 }
@@ -452,41 +452,29 @@ gboolean
 idle_task (KiroMessengerPrivate *priv)
 {
     GError *error = NULL;
+    
+    if (priv->close_signal)
+        return TRUE;
 
+    g_mutex_lock (&priv->connection_handling_lock);
     GList *le = g_list_first (priv->peers);
     while (le) {
-
         KiroPeer *peer = (KiroPeer *)le->data;
+
+        g_mutex_lock (&peer->rdma_handling_lock);
         GList *pl = g_list_first (peer->m_queue);
         PendingMessage *pm = NULL;
         if (pl && !peer->pending) {
             peer->pending = pm = (PendingMessage *)pl->data;
 
-            g_mutex_lock (&peer->rdma_handling_lock);
             struct kiro_connection_context *ctx = (struct kiro_connection_context *)peer->conn->context;
             struct kiro_ctrl_msg *request = (struct kiro_ctrl_msg *)ctx->cf_mr_send->mem;
             KiroMessage *msg = pm->message_out;
 
             if (msg->size > 0) {
                 g_debug ("Sending message of type '%u' and size '%lu'", msg->msg, msg->size);
-                struct kiro_rdma_mem *rdma_out = (struct kiro_rdma_mem *)g_malloc0 (sizeof (struct kiro_rdma_mem));
-                if (!rdma_out) {
-                    g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
-                                 "Failed to create RDMA memory for transmission.");
-                    goto done;
-                }
-                rdma_out->size = msg->size;
-                rdma_out->mem = msg->payload;
-                if (0 > kiro_register_rdma_memory (peer->conn->pd, &(rdma_out->mr), msg->payload, msg->size,
-                                                   IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ)) {
-                    g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
-                                 "Failed to register (pin) RDMA memory for transmission.");
-                    goto done;
-                }
-                pm->rdma_mem = rdma_out;
-
                 request->msg_type = KIRO_REQ_RDMA;
-                request->peer_mri = *(rdma_out->mr);
+                request->peer_mri = *(pm->rdma_mem->mr);
                 request->peer_mri.handle = GPOINTER_TO_UINT (msg);
             }
             else {
@@ -502,7 +490,6 @@ idle_task (KiroMessengerPrivate *priv)
                 goto done;
             }
             g_debug ("RDMA_SEND successfull");
-            g_mutex_unlock (&peer->rdma_handling_lock);
         }
 done:
         if (error) {
@@ -521,7 +508,9 @@ done:
         }
 
         le = g_list_next (le);
+        g_mutex_unlock (&peer->rdma_handling_lock);
     }
+    g_mutex_unlock (&priv->connection_handling_lock);
 
     return TRUE;
 }
@@ -751,9 +740,11 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
                     g_free (msg_status->message);
                 }
                 g_free (msg_status);
-                rdma_data_in->mem = NULL;
-                kiro_destroy_rdma_memory (rdma_data_in);
             }
+            //Disattach the payload so kiro_destroy_rdma_memory does not free it
+            if (rdma_data_in)
+                rdma_data_in->mem = NULL;
+            kiro_destroy_rdma_memory (rdma_data_in);
             break;
         }
         case KIRO_REJ_RDMA:
@@ -1273,7 +1264,6 @@ kiro_messenger_send_with_callback (KiroMessenger *self, KiroMessage *msg,
     return TRUE;
 
 fail:
-    g_mutex_unlock (&peer->rdma_handling_lock);
     g_propagate_error (error_out, error);
     return FALSE;
 }
