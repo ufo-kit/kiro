@@ -8,3 +8,4 @@ Description: @LIBKIRO_DESCRIPTION_SUMMARY@
 Version: @LIBKIRO_VERSION_MAJOR@.@LIBKIRO_VERSION_MINOR@.@LIBKIRO_VERSION_PATCH@
 Libs: -L${libdir} -lkiro
 Cflags: -I${includedir}
+Requires: glib-2.0 gobject-2.0

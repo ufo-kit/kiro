@@ -55,6 +55,16 @@ struct _KiroMessengerPrivate {
     gulong                      rank_counter;
 };
 
+
+typedef struct {
+    KiroMessage                 *message_out;    // Current send message being processed
+    struct kiro_rdma_mem        *rdma_mem;       // Current RDMA memory region for message
+    KiroMessageCallbackFunc     callback;        // Callback to invoke upon send
+    gpointer                    user_data;       // User data for the callback
+    guint                       fail_count;      // How ofter has the message failed to be sent
+} PendingMessage;
+
+
 typedef struct {
     gulong                      rank;            // Rank/local-id
     struct rdma_event_channel   *ec;             // Event channel for this peer
@@ -64,11 +74,8 @@ typedef struct {
     GIOChannel                  *conn_ioc;       // GLib IO Channel of the connection management eventchannel
     guint                       conn_ioc_id;     // ID of the source created by g_io_add_watch
 
-    KiroMessage                 *message_out;    // Current send message being processed
-    struct kiro_rdma_mem        *rdma_mem;       // Current RDMA memory region for message
-    KiroMessageCallbackFunc     callback;        // Callback to invoke upon send
-    gpointer                    user_data;       // User data for the callback
-
+    GList                       *m_queue;        // Message Send Queue
+    PendingMessage              *pending;        // Current pending message
 
     //Pointer to private data structures of the Messenger.
     //This is a workaround to make the peers be able to work independent of the
@@ -113,23 +120,9 @@ kiro_messenger_free (KiroMessenger *self)
 }
 
 
-gpointer
-start_messenger_main_loop (gpointer data)
-{
-    g_main_loop_run ((GMainLoop *)data);
-    return NULL;
-}
-
-
-gboolean
-idle_task (KiroMessengerPrivate *priv)
-{
-    (void) priv;
-    //TODO
-    //Do stuff
-    return TRUE;
-}
-
+//forward declare
+gboolean idle_task (KiroMessengerPrivate *user_data);
+gpointer start_messenger_main_loop (gpointer user_data);
 
 static void
 kiro_messenger_init (KiroMessenger *self)
@@ -344,7 +337,7 @@ create_peer (struct rdma_cm_id *conn, GError **error_out)
 
     KiroPeer *peer = g_malloc0 (sizeof (KiroPeer));
     peer->conn = conn;
-    peer->ec = rdma_create_event_channel (); 
+    peer->ec = rdma_create_event_channel ();
     if (!peer->ec) {
         g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
                      "Failed to create new event channel for listening.");
@@ -385,17 +378,21 @@ error:
 static void
 destroy_peer (gpointer peer_in)
 {
+
+    //TODO
+    //Make sure to cancel all pending messages and call their send callbacks
+    /* if (peer->rdma_mem) */
+    /*     kiro_destroy_rdma_memory (peer->rdma_mem); */
+
     KiroPeer *peer = (KiroPeer *)peer_in;
     g_debug ("Deactivating peer with rank '%lu'.", peer->rank);
     peer->active = FALSE;
-    while (peer->message_out || peer->rdma_mem) {};
+    while (peer->pending) {};
     g_source_remove (peer->conn_ioc_id); // this also unrefs the GIOChannel of the source. Nice.
     g_source_remove (peer->rdma_ioc_id); // this also unrefs the GIOChannel of the source. Nice.
     kiro_destroy_connection ( &(peer->conn));
     rdma_destroy_event_channel (peer->ec);
 
-    if (peer->rdma_mem)
-        kiro_destroy_rdma_memory (peer->rdma_mem);
 
     g_free (peer);
     *peer->peer_list = g_list_remove (*peer->peer_list, peer);
@@ -440,6 +437,93 @@ send_msg (struct rdma_cm_id *id, struct kiro_rdma_mem *r, uint32_t imm_data)
         g_debug ("WC Status: %i", wc.status);
     }
     return retval;
+}
+
+
+gpointer
+start_messenger_main_loop (gpointer data)
+{
+    g_main_loop_run ((GMainLoop *)data);
+    return NULL;
+}
+
+
+gboolean
+idle_task (KiroMessengerPrivate *priv)
+{
+    GError *error = NULL;
+
+    GList *le = g_list_first (priv->peers);
+    while (le) {
+
+        KiroPeer *peer = (KiroPeer *)le->data;
+        GList *pl = g_list_first (peer->m_queue);
+        PendingMessage *pm = NULL;
+        if (pl && !peer->pending) {
+            peer->pending = pm = (PendingMessage *)pl->data;
+
+            g_mutex_lock (&peer->rdma_handling_lock);
+            struct kiro_connection_context *ctx = (struct kiro_connection_context *)peer->conn->context;
+            struct kiro_ctrl_msg *request = (struct kiro_ctrl_msg *)ctx->cf_mr_send->mem;
+            KiroMessage *msg = pm->message_out;
+
+            if (msg->size > 0) {
+                g_debug ("Sending message of type '%u' and size '%lu'", msg->msg, msg->size);
+                struct kiro_rdma_mem *rdma_out = (struct kiro_rdma_mem *)g_malloc0 (sizeof (struct kiro_rdma_mem));
+                if (!rdma_out) {
+                    g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                                 "Failed to create RDMA memory for transmission.");
+                    goto done;
+                }
+                rdma_out->size = msg->size;
+                rdma_out->mem = msg->payload;
+                if (0 > kiro_register_rdma_memory (peer->conn->pd, &(rdma_out->mr), msg->payload, msg->size,
+                                                   IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ)) {
+                    g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                                 "Failed to register (pin) RDMA memory for transmission.");
+                    goto done;
+                }
+                pm->rdma_mem = rdma_out;
+
+                request->msg_type = KIRO_REQ_RDMA;
+                request->peer_mri = *(rdma_out->mr);
+                request->peer_mri.handle = GPOINTER_TO_UINT (msg);
+            }
+            else {
+                g_debug ("Sending stub message of type '%u'", msg->msg);
+                // STUB message
+                request->msg_type = KIRO_MSG_STUB;
+                request->peer_mri.handle = GPOINTER_TO_UINT (msg);
+            }
+
+            if (0 > send_msg (peer->conn, ctx->cf_mr_send, msg->msg)) {
+                g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                             "Failed to RDMA_SEND to peer '%lu'.", msg->peer_rank);
+                goto done;
+            }
+            g_debug ("RDMA_SEND successfull");
+            g_mutex_unlock (&peer->rdma_handling_lock);
+        }
+done:
+        if (error) {
+            g_debug ("Sending message failed (Try %u): '%s'", pm->fail_count, error->message);
+            if (++(pm->fail_count) >= 3) {
+                g_debug ("Message sending failed after %u times. Giving up.", pm->fail_count);
+                peer->m_queue = g_list_delete_link (peer->m_queue, pl);
+                //TODO
+                //Cancel message
+            }
+            g_error_free (error);
+            error = NULL;
+        }
+        else {
+            peer->m_queue = g_list_delete_link (peer->m_queue, pl);
+        }
+
+        le = g_list_next (le);
+    }
+
+    return TRUE;
 }
 
 
@@ -547,18 +631,17 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
             KiroMessageStatus *msg_status = g_malloc0 (sizeof (KiroMessageStatus));
             msg_status->status = KIRO_MESSAGE_SEND_SUCCESS;
             msg_status->rej_reason = -1;
-            msg_status->message = peer->message_out;
+            msg_status->message = peer->pending->message_out;
 
-            KiroMessageCallbackFunc f = peer->callback;
-            f (msg_status, peer->user_data);
+            KiroMessageCallbackFunc f = peer->pending->callback;
+            f (msg_status, peer->pending->user_data);
 
             if (msg_status->request_cleanup) {
                 g_free (msg_status->message);
             }
             g_free (msg_status);
-            peer->message_out = NULL;
-            peer->callback = NULL;
-            peer->user_data = NULL;
+            g_free (peer->pending);
+            peer->pending = NULL;
             break;
         }
         case KIRO_REQ_RDMA:
@@ -571,11 +654,13 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
             msg_out->msg_type = KIRO_REJ_RDMA; // REJ by default. Only change if everything is okay
             msg_out->peer_mri = msg_in->peer_mri;
 
+
+            struct kiro_rdma_mem *rdma_data_in = NULL;
             if (!peer->active) {
                 g_debug ("Peer is being disposed. Won't accept message.");
                 goto reject;
             }
-            else if (peer->rdma_mem) {
+            else if (peer->pending) {
                 g_debug ("But only one pending message is allowed");
                 goto reject;
             }
@@ -584,8 +669,7 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
                 goto reject;
             }
             else {
-                struct kiro_rdma_mem *rdma_data_in = kiro_create_rdma_memory (conn->pd, msg_in->peer_mri.length, IBV_ACCESS_LOCAL_WRITE);
-                peer->rdma_mem = rdma_data_in;
+                rdma_data_in = kiro_create_rdma_memory (conn->pd, msg_in->peer_mri.length, IBV_ACCESS_LOCAL_WRITE);
 
                 if (!rdma_data_in) {
                     g_critical ("Failed to create message MR for peer message!");
@@ -646,9 +730,9 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
                 g_debug ("Dispatching received message");
                 KiroMessageStatus *msg_status = (KiroMessageStatus *)g_malloc0(sizeof (KiroMessageStatus));
                 msg_status->message = (KiroMessage *)g_malloc0 (sizeof (KiroMessage));
-                msg_status->message->msg = type;
-                msg_status->message->size = peer->rdma_mem->size;
-                msg_status->message->payload = peer->rdma_mem->mem;
+                msg_status->message->msg = ntohl (wc.imm_data);
+                msg_status->message->size = rdma_data_in->size;
+                msg_status->message->payload = rdma_data_in->mem;
                 msg_status->message->peer_rank = peer->rank;
                 msg_status->status = KIRO_MESSAGE_RECEIVED;
                 msg_status->rej_reason = -1;
@@ -667,16 +751,15 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
                     g_free (msg_status->message);
                 }
                 g_free (msg_status);
-                peer->rdma_mem->mem = NULL;
-                kiro_destroy_rdma_memory (peer->rdma_mem);
-                peer->rdma_mem = NULL;
+                rdma_data_in->mem = NULL;
+                kiro_destroy_rdma_memory (rdma_data_in);
             }
             break;
         }
         case KIRO_REJ_RDMA:
         {
             g_debug ("Message '%u' was rejected by the peer", msg_in->peer_mri.handle);
-            if (!peer->message_out) {
+            if (!peer->pending->message_out) {
                 g_debug ("But there is no pending message...");
                 break;
             }
@@ -685,18 +768,20 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
                 KiroMessageStatus *msg_status = g_malloc0 (sizeof (KiroMessageStatus));
                 msg_status->status = KIRO_MESSAGE_SEND_FAILED;
                 msg_status->rej_reason = KIRO_REJ_PEER_NOT_LISTENING;
-                msg_status->message = peer->message_out;
+                msg_status->message = peer->pending->message_out;
 
-                KiroMessageCallbackFunc f = peer->callback;
-                f (msg_status, peer->user_data);
+                KiroMessageCallbackFunc f = peer->pending->callback;
+                f (msg_status, peer->pending->user_data);
 
                 if (msg_status->request_cleanup) {
+                    g_free (msg_status->message->payload);
                     g_free (msg_status->message);
                 }
                 g_free (msg_status);
-                peer->message_out = NULL;
-                peer->callback = NULL;
-                peer->user_data = NULL;
+                peer->pending->rdma_mem->mem = NULL;
+                kiro_destroy_rdma_memory (peer->pending->rdma_mem);
+                g_free (peer->pending);
+                peer->pending = NULL;
                 break;
             }
         }
@@ -707,22 +792,20 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
             KiroMessageStatus *msg_status = g_malloc0 (sizeof (KiroMessageStatus));
             msg_status->status = KIRO_MESSAGE_SEND_SUCCESS;
             msg_status->rej_reason = -1;
-            msg_status->message = peer->message_out;
-            peer->message_out = NULL;
+            msg_status->message = peer->pending->message_out;
 
-            KiroMessageCallbackFunc f = peer->callback;
-            f (msg_status, peer->user_data);
+            KiroMessageCallbackFunc f = peer->pending->callback;
+            f (msg_status, peer->pending->user_data);
 
             if (msg_status->request_cleanup) {
                 g_free (msg_status->message->payload);
                 g_free (msg_status->message);
             }
             g_free (msg_status);
-            peer->rdma_mem->mem = NULL;
-            kiro_destroy_rdma_memory (peer->rdma_mem);
-            peer->rdma_mem = NULL;
-            peer->callback = NULL;
-            peer->user_data = NULL;
+            peer->pending->rdma_mem->mem = NULL;
+            kiro_destroy_rdma_memory (peer->pending->rdma_mem);
+            g_free (peer->pending);
+            peer->pending = NULL;
             break;
         }
         default:
@@ -1155,23 +1238,19 @@ kiro_messenger_send_with_callback (KiroMessenger *self, KiroMessage *msg,
         goto fail;
     }
 
-    g_mutex_lock (&peer->rdma_handling_lock);
-    if (peer->message_out || peer->rdma_mem) {
-        g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
-                     "Already sending a message to peer with rank '%lu'.", msg->peer_rank);
-        goto fail;
-    }
 
-    struct kiro_connection_context *ctx = (struct kiro_connection_context *)peer->conn->context;
-    struct kiro_ctrl_msg *request = (struct kiro_ctrl_msg *)ctx->cf_mr_send->mem;
-    peer->message_out = msg;
+    PendingMessage *pm = g_malloc0 (sizeof (PendingMessage));
+    pm->message_out = msg;
+    pm->callback = callback;
+    pm->user_data = user_data;
 
     if (msg->size > 0) {
-        g_debug ("Sending message of type '%u' and size '%lu'", msg->msg, msg->size);
+        g_debug ("Registering message memory of size '%lu' and type '%u'", msg->size, msg->msg);
         struct kiro_rdma_mem *rdma_out = (struct kiro_rdma_mem *)g_malloc0 (sizeof (struct kiro_rdma_mem));
         if (!rdma_out) {
             g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
                          "Failed to create RDMA memory for transmission.");
+            g_free (pm);
             goto fail;
         }
         rdma_out->size = msg->size;
@@ -1180,38 +1259,17 @@ kiro_messenger_send_with_callback (KiroMessenger *self, KiroMessage *msg,
                                            IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ)) {
             g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
                          "Failed to register (pin) RDMA memory for transmission.");
+            g_free (pm);
             goto fail;
         }
-        peer->rdma_mem = rdma_out;
-
-        request->msg_type = KIRO_REQ_RDMA;
-        request->peer_mri = *(rdma_out->mr);
-        request->peer_mri.handle = GPOINTER_TO_UINT (msg);
-    }
-    else {
-        g_debug ("Sending stub message of type '%u'", msg->msg);
-        // STUB message
-        request->msg_type = KIRO_MSG_STUB;
-        request->peer_mri.handle = GPOINTER_TO_UINT (msg);
+        pm->rdma_mem = rdma_out;
     }
 
-    //Set up the callback before sending.
-    //This prevents a race condition of the peer answers before the send_msg
-    //function has returned.
-    peer->callback = callback;
-    peer->user_data = user_data;
 
-    if (0 > send_msg (peer->conn, ctx->cf_mr_send, msg->msg)) {
-        g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
-                     "Failed to RDMA_SEND to peer '%lu'.", msg->peer_rank);
-        peer->callback = NULL;
-        peer->user_data = NULL;
-        peer->message_out = NULL;
-        goto fail;
-    }
-    g_debug ("RDMA_SEND successfull");
-
+    g_mutex_lock (&peer->rdma_handling_lock);
+    peer->m_queue = g_list_append (peer->m_queue, pm);
     g_mutex_unlock (&peer->rdma_handling_lock);
+
     return TRUE;
 
 fail:

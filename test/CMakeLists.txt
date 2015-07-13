@@ -1,5 +1,5 @@
-include_directories(${KIRO_SOURCE_DIR}/src)
-link_directories(${KIRO_BINARY_DIR}/src)
+include_directories(${KIRO_SOURCE_DIR})
+link_directories(${KIRO_BINARY_DIR})
 
 find_package(PkgConfig)
 pkg_check_modules(SDL sdl>=1.2.15)
