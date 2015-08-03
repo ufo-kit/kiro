@@ -6,26 +6,24 @@
 #include <assert.h>
 #include <unistd.h>
 
-gboolean
-grab_message (KiroMessageStatus *status, gpointer user_data)
+void
+grab_message (KiroRequest *request, gpointer user_data)
 {
     gulong *rank = (gulong *)user_data;
-    g_message ("Message received! Type: %u, Content: %s", status->message->msg, (gchar *)(status->message->payload));
-    *rank = status->message->peer_rank;
-    return KIRO_CALLBACK_CONTINUE;
+    g_message ("Message received! Type: %u, Content: %s", request->message->msg, (gchar *)(request->message->payload));
+    *rank = request->peer_rank;
 }
 
 
-gboolean
-message_was_sent (KiroMessageStatus *status, gpointer user_data)
+void
+message_received (KiroRequest *request, gpointer user_data)
 {
     gboolean *flag = (gboolean *)user_data;
-    if (status->status == KIRO_MESSAGE_SEND_SUCCESS)
-        g_message ("Message was sent successfully");
+    if (request->status == KIRO_MESSAGE_RECEIVED)
+        g_message ("Peer ECHO received");
     else
-        g_message ("Message sending failed");
+        g_message ("Message receive failure.");
     *flag = TRUE;
-    return KIRO_CALLBACK_REMOVE;
 }
 
 KiroContinueFlag
@@ -88,35 +86,41 @@ main ( int argc, char *argv[] )
         msg.msg = 42;
         msg.size = str->len + 1; // respect the NULL byte */
         msg.payload = str->str;
-        msg.peer_rank = 1;
 
-        gboolean can_leave = FALSE;
-
-        if (!kiro_messenger_send_with_callback (messenger, &msg, message_was_sent, &can_leave, &error)) {
+        if (!kiro_messenger_send_blocking (messenger, &msg, 1, &error)) {
             printf ("Sending failed: '%s'\n", error->message);
             goto done;
         }
         else
             printf ("Message submitted successfully\n");
 
-        while (can_leave == FALSE) {}
-        can_leave = FALSE;
-        kiro_messenger_add_receive_callback (messenger, grab_message, &can_leave);
+        gboolean can_leave = FALSE;
+        KiroRequest request;
+        request.id = 0;
+        request.callback = message_received;
+        request.user_data = (gpointer) &can_leave;
+
+        kiro_messenger_receive (messenger, &request);
         while (!can_leave) {}
     }
     else {
         gulong sender_rank = 0;
-        kiro_messenger_add_receive_callback (messenger, grab_message, &sender_rank);
+
+        KiroRequest request;
+        request.id = 0;
+        request.callback = grab_message;
+        request.user_data = (gpointer) &sender_rank;
+
         g_message ("Messenger started. Waiting for incoming messages.");
         while (1) {
+            kiro_messenger_receive (messenger, &request);
             while (sender_rank == 0) {};
             printf ("Sending Echo...\n");
             KiroMessage msg;
             msg.msg = 1337;
             msg.payload = g_strdup ("Echo");
             msg.size = 5; // respect the NULL byte
-            msg.peer_rank = sender_rank;
-            kiro_messenger_send_blocking (messenger, &msg, &error);
+            kiro_messenger_send_blocking (messenger, &msg, sender_rank, &error);
             sender_rank = 0;
         }
     }

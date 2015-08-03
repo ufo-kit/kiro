@@ -6,13 +6,13 @@
 #include <assert.h>
 #include <unistd.h>
 
-KiroContinueFlag
-callback (KiroMessageStatus *status, gpointer user_data)
+void
+callback (KiroRequest *request, gpointer user_data)
 {
     gboolean *flag = (gboolean *)user_data;
-    status->request_cleanup = TRUE;
+    g_free (request->message->payload);
+    g_free (request->message);
     *flag = TRUE;
-    return KIRO_CALLBACK_CONTINUE;
 }
 
 KiroContinueFlag
@@ -80,13 +80,20 @@ main ( int argc, char *argv[] )
         msg.msg = 42;
         msg.payload = malloc (size_bytes);
         msg.size = size_bytes;
-        msg.peer_rank = 1;
+
+        KiroRequest request;
+        request.id = 0;
+        request.callback = NULL;
+        request.user_data = NULL;
+        request.message = &msg;
+        request.peer_rank = 1;
 
         GTimer *timer = g_timer_new ();
         g_timer_reset (timer);
 
         for (gint i = 0; i < iterations; i++) {
-            if (0 > kiro_messenger_send_blocking (messenger, &msg, &error)) {
+            request.id = i;
+            if (!kiro_messenger_send (messenger, &request, &error)) {
                 printf ("Sending failed...\n");
                 exit(-1);
             }
@@ -94,7 +101,14 @@ main ( int argc, char *argv[] )
                 printf ("Error: %s\n", error->message);
                 exit (-1);
             }
+            while (request.status == KIRO_MESSAGE_PENDING) {};
+
+            if (request.status != KIRO_MESSAGE_SEND_SUCCESS) {
+                printf ("Sending failed with status %i\n", request.status);
+                exit (-1);
+            }
         }
+
         gdouble elapsed = g_timer_elapsed (timer, NULL);
         gdouble size_gb = (iterations * size_mb) / 1024.0;
         gdouble throughput =  size_gb / elapsed;
@@ -103,9 +117,14 @@ main ( int argc, char *argv[] )
     }
     else {
         gboolean received = FALSE;
-        kiro_messenger_add_receive_callback (messenger, callback, &received);
+        KiroRequest request;
+        request.id = 0;
+        request.callback = callback;
+        request.user_data = (gpointer) &received;
+
         g_message ("Messenger started. Waiting for incoming messages.");
         while (1) {
+            kiro_messenger_receive (messenger, &request);
             while (!received) {};
             received = FALSE;
         }
