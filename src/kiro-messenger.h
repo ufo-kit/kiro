@@ -94,6 +94,20 @@ typedef enum {
 } KiroMessageStatus;
 
 
+
+//Opaque declare
+typedef struct _KiroStaticRDMAInternal KiroStaticRDMAInternal;
+
+
+typedef struct {
+    gulong id;
+    gulong peer_rank;
+    gulong size;
+    gpointer mem;
+    KiroStaticRDMAInternal *internal;
+} KiroStaticRDMA;
+
+
 //Forward declare
 struct _KiroRequest;
 
@@ -281,7 +295,7 @@ gboolean kiro_messenger_receive (KiroMessenger *messenger, KiroRequest *request)
  *   kiro_messenger_send_blocking
  */
 gboolean kiro_messenger_send (KiroMessenger *messenger,
-                              KiroRequest *request, 
+                              KiroRequest *request,
                               GError **error);
 
 /**
@@ -303,6 +317,124 @@ gboolean kiro_messenger_send_blocking (KiroMessenger *messenger,
                                        KiroMessage *message,
                                        gulong peer_rank,
                                        GError **error);
+
+/**
+ * kiro_messenger_request_static
+ * @messenger: #KiroMessenger to use for this request
+ * @size: Size in bytes of the RDMA memory to request
+ * @peer_rank: Rank/local-ID of the peer to send the request to
+ * @error: (allow-none): A #GError, used for error reporting
+ *
+ *   Requests a static RDMA memory region from the peer. The returned
+ *   #KiroStaticRDMA struct can be passed to the kiro_messenger_pull_static()
+ *   and kiro_messenger_push_static() methods to access and manipulate the static
+ *   RDMA memory regions.
+ *   The remote peer needs to call kiro_messenger_accept_static() with a
+ *   requested size equal to or greater than @size in order for the messenger to
+ *   be able to set up the static RDMA memory region.
+ *
+ * Note: The returned #KiroStaticRDMA might not be freed before it has been
+ * passed to kiro_messenger_release_static() or otherwise the underlying memory
+ * will be leaked.
+ *
+ * Returns: (transfer-full) A #KiroStaticRDMA struct, or %NULL in case of error.
+ *
+ * See also:
+ *   kiro_messenger_release_static(), kiro_messenger_accept_static(),
+ *   kiro_messenger_pull_static(), kiro_messenger_push_static(),
+ */
+KiroStaticRDMA* kiro_messenger_request_static (KiroMessenger *messenger,
+                                               gulong size,
+                                               gulong peer_rank,
+                                               GError **error);
+
+
+/**
+ * kiro_messenger_accept_static:
+ * @messenger: #KiroMessenger to use for this request
+ * @max_size: Maximum Size in bytes of the RDMA memory request to accept
+ * @error: (allow-none): A #GError, used for error reporting
+ *
+ *   Blocks until any connected peer requests a static RDMA region from the
+ *   messenger. If the requested RDMA regions size is equal or smaller to the
+ *   supplied @max_size, the request will be accepted and the call to
+ *   kiro_messenger_accept_static will return with a pointer to a valid
+ *   #KiroStaticRDMA struct. If the received request is of larger size than
+ *   @max_size or otherwise invalid, it will be rejected and this functil will
+ *   continue to block and wait for a valid request.
+ *
+ * Returns: A #KiroStaticRDMA struct, or %NULL in case of error.
+ *
+ * See also:
+ *   kiro_messenger_release_static(), kiro_messenger_request_static(),
+ *   kiro_messenger_pull_static(), kiro_messenger_push_static(),
+ */
+KiroStaticRDMA* kiro_messenger_accept_static (KiroMessenger *messenger,
+                                               gulong max_size,
+                                               GError **error);
+
+
+/**
+ * kiro_messenger_push_static:
+ * @messenger: #KiroMessenger to use for this request
+ * @static_mem: The #KiroStaticRDMA to push
+ * @error: (allow-none): A #GError, used for error reporting
+ *
+ *   Copies the content of the local @static_mem to the remote peer,
+ *   overwriting any content in the remote @static_mem.
+ *
+ * Returns: A #gboolean. %TRUE if the operation was successfull, %FALSE in
+ * case of error.
+ *
+ * See also:
+ *   kiro_messenger_release_static(), kiro_messenger_accept_static(),
+ *   kiro_messenger_pull_static(), kiro_messenger_request_static(),
+ */
+gboolean kiro_messenger_push_static (KiroMessenger *messenger,
+                                     KiroStaticRDMA* static_mem,
+                                     GError **error);
+
+
+/**
+ * kiro_messenger_pull_static:
+ * @messenger: #KiroMessenger to use for this request
+ * @static_mem: The #KiroStaticRDMA to pull
+ * @error: (allow-none): A #GError, used for error reporting
+ *
+ *   Copies the content of the remote @static_mem to the local memory,
+ *   overwriting any content in the local @static_mem.
+ *
+ * Returns: A #gboolean. %TRUE if the operation was successfull, %FALSE in
+ * case of error.
+ *
+ * See also:
+ *   kiro_messenger_release_static(), kiro_messenger_accept_static(),
+ *   kiro_messenger_push_static(), kiro_messenger_request_static(),
+ */
+gboolean kiro_messenger_pull_static (KiroMessenger *messenger,
+                                     KiroStaticRDMA* static_mem,
+                                     GError **error);
+
+
+/**
+ * kiro_messenger_release_static:
+ * @messenger: #KiroMessenger to use for this request
+ * @static_mem: The #KiroStaticRDMA to release
+ * @error: (allow-none): A #GError, used for error reporting
+ *
+ *   Releases the @static_mem and frees all its underlying memory.
+ *
+ * Returns: A #gboolean. %TRUE if the operation was successfull, %FALSE in
+ * case of error.
+ *
+ * See also:
+ *   kiro_messenger_release_static(), kiro_messenger_accept_static(),
+ *   kiro_messenger_push_static(), kiro_messenger_request_static(),
+ */
+gboolean kiro_messenger_release_static (KiroMessenger *messenger,
+                                     KiroStaticRDMA* static_mem,
+                                     GError **error);
+
 
 /**
  * kiro_messenger_stop:

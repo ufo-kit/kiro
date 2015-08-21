@@ -79,7 +79,11 @@ struct kiro_ctrl_msg {
         KIRO_REJ_RDMA,                              // RDMA Request rejected :(  (peer_mri will be invalid)
         KIRO_PING,                                  // PING Message
         KIRO_PONG,                                  // PONG Message (PING reply)
-        KIRO_REALLOC                                // Used by the server to notify the client about a new peer_mri
+        KIRO_REALLOC,                               // Used by the server to notify the client about a new peer_mri
+        KIRO_REQ_STATIC,                            // Used by the messenger component to request a static RDMA region
+        KIRO_REJ_STATIC,                            // Used by the messenger to reject a request for static RDMA
+        KIRO_ACK_STATIC,                            // Used by the messenger to accept a static RDMA and deliver the  peer_mri
+        KIRO_FREE_STATIC                            // Used by the messenger to inform the peer to free a static RDMA region
     } msg_type;
 
     struct ibv_mr peer_mri;

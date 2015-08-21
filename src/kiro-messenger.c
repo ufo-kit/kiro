@@ -53,6 +53,11 @@ struct _KiroMessengerPrivate {
     GList                       *rec_requests;   // Receive Requests
     GMutex                      r_queue_lock;
     gulong                      rank_counter;
+    gulong                      static_counter;
+
+    GList                       *statics;
+    KiroStaticRDMAInternal      *static_request;
+    GMutex                      static_rdma_lock;
 };
 
 
@@ -86,9 +91,20 @@ typedef struct {
     //This is a workaround to make the peers be able to work independent of the
     //messenger itself.
     GList                       **peer_list;
-    GList                       **rec_requests; 
+    GList                       **rec_requests;
     GMutex                      *r_queue_lock;
 } KiroPeer;
+
+
+//Opaque structure (forward declared in header)
+struct _KiroStaticRDMAInternal {
+    struct kiro_rdma_mem *local_mem;
+    struct ibv_mr remote_mem;
+    gulong max_size;
+    gulong peer_rank;
+    gboolean valid;
+};
+
 
 
 G_DEFINE_TYPE (KiroMessenger, kiro_messenger, G_TYPE_OBJECT);
@@ -137,10 +153,12 @@ kiro_messenger_init (KiroMessenger *self)
     g_mutex_init (&priv->connection_handling_lock);
     g_mutex_init (&priv->shutdown_lock);
     g_mutex_init (&priv->r_queue_lock);
+    g_mutex_init (&priv->static_rdma_lock);
 
     g_mutex_unlock (&priv->connection_handling_lock);
     g_mutex_unlock (&priv->shutdown_lock);
     g_mutex_unlock (&priv->r_queue_lock);
+    g_mutex_unlock (&priv->static_rdma_lock);
 
     priv->main_loop = g_main_loop_new (NULL, FALSE);
     g_idle_add_full (0, (GSourceFunc)idle_task, priv, NULL);
@@ -168,6 +186,7 @@ kiro_messenger_finalize (GObject *object)
 
     g_mutex_clear (&priv->connection_handling_lock);
     g_mutex_clear (&priv->shutdown_lock);
+    g_mutex_clear (&priv->r_queue_lock);
 
     G_OBJECT_CLASS (kiro_messenger_parent_class)->finalize (object);
 }
@@ -458,7 +477,7 @@ gboolean
 idle_task (KiroMessengerPrivate *priv)
 {
     GError *error = NULL;
-    
+
     if (priv->close_signal)
         return TRUE;
 
@@ -575,6 +594,15 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
         /*     } */
         /*     break; */
         /* } */
+        case KIRO_REQ_STATIC:
+        {
+            g_debug ("Peer %lu wants static RDMA of size %lu", peer->rank, msg_in->peer_mri.length);
+
+            // Shit... the peers need to know about static resquest...
+            // But that lies in priv :/  What now?
+
+            break;
+        }
         case KIRO_MSG_STUB:
         {
             g_debug ("Got a stub message from peer '%lu'.", peer->rank);
@@ -648,7 +676,7 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
                 goto reject;
             }
             else if (!(*peer->rec_requests)) {
-                g_debug ("But no one if listening for any messages");
+                g_debug ("But no one is listening for any messages");
                 goto reject;
             }
             else {
@@ -668,7 +696,7 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
 
                     struct ibv_wc send_wc;
                     if (rdma_get_send_comp (conn, &send_wc) < 0) {
-                        g_critical ("No send completion for RDMA_WRITE received: %s", strerror (errno));
+                        g_critical ("No send-completion for RDMA_WRITE received: %s", strerror (errno));
                         kiro_destroy_rdma_memory (rdma_data_in);
                         goto reject;
                     }
@@ -1191,6 +1219,8 @@ kiro_messenger_send (KiroMessenger *self, KiroRequest *request, GError **error_o
         return FALSE;
     }
 
+    g_mutex_lock (&priv->connection_handling_lock);
+
     KiroPeer *peer = find_peer_by_rank (priv, request->peer_rank);
     if (!peer) {
         g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
@@ -1239,9 +1269,12 @@ kiro_messenger_send (KiroMessenger *self, KiroRequest *request, GError **error_o
     request->status = KIRO_MESSAGE_PENDING;
     g_mutex_unlock (&peer->s_queue_lock);
 
+    g_mutex_unlock (&priv->connection_handling_lock);
+
     return TRUE;
 
 fail:
+    g_mutex_unlock (&priv->connection_handling_lock);
     g_propagate_error (error_out, error);
     return FALSE;
 }
@@ -1287,6 +1320,293 @@ kiro_messenger_receive (KiroMessenger *self, KiroRequest *request)
 }
 
 
+KiroStaticRDMA *kiro_messenger_request_static (KiroMessenger *self, gulong size, gulong peer_rank, GError **error_out)
+{
+    GError *error = NULL;
+    g_return_val_if_fail (self != NULL, NULL);
+
+    KiroMessengerPrivate *priv = KIRO_MESSENGER_GET_PRIVATE (self);
+
+    if (!priv->peers) {
+        g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                     "Trying to perform an action on a messenger which is not connected.");
+        g_propagate_error (error_out, error);
+        return NULL;
+    }
+
+    g_mutex_lock (&priv->connection_handling_lock);
+
+    KiroPeer *peer = find_peer_by_rank (priv, peer_rank);
+    if (!peer) {
+        g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                     "No peer with rank '%lu' is connected.", peer_rank);
+        g_propagate_error (error_out, error);
+        g_mutex_unlock (&priv->connection_handling_lock);
+        return NULL;
+    }
+
+    if (!peer->active) {
+        g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                     "Peer with rank '%lu' is no longer active.", peer_rank);
+        g_propagate_error (error_out, error);
+        g_mutex_unlock (&priv->connection_handling_lock);
+        return NULL;
+    }
+
+
+    struct kiro_rdma_mem *rdma_mem = kiro_create_rdma_memory (peer->conn->pd, size, IBV_ACCESS_REMOTE_WRITE
+                                                              | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE);
+
+    if (!rdma_mem) {
+        g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                     "Unable to allocate RDMA memory of size %lu", size);
+        g_propagate_error (error_out, error);
+        g_mutex_unlock (&priv->connection_handling_lock);
+        return NULL;
+    }
+
+    g_mutex_lock (&priv->static_rdma_lock);
+
+    KiroStaticRDMA *stat = g_malloc0 (sizeof (KiroStaticRDMA));
+    stat->id = priv->static_counter++;
+    stat->size = size;
+    stat->mem = rdma_mem->mem;
+    stat->peer_rank = peer_rank;
+    stat->internal = g_malloc (sizeof (KiroStaticRDMAInternal));
+    stat->internal->peer_rank = peer_rank;
+    stat->internal->local_mem = rdma_mem;
+    stat->internal->valid = FALSE;
+
+    priv->static_request = stat->internal;
+
+    g_mutex_lock (&peer->rdma_handling_lock);
+
+    g_debug ("Requesting STATIC_RDMA of size %lu from peer %lu.", size, peer_rank);
+    struct kiro_connection_context *ctx = (struct kiro_connection_context *)peer->conn->context;
+    struct kiro_ctrl_msg *static_request = (struct kiro_ctrl_msg *)ctx->cf_mr_send->mem;
+    static_request->msg_type = KIRO_REQ_STATIC;
+    static_request->peer_mri = *(stat->internal->local_mem->mr);
+
+    if (0 > send_msg (peer->conn, ctx->cf_mr_send, stat->id)) {
+        g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                     "Failed to RDMA_SEND to peer '%lu'.", peer_rank);
+        g_mutex_unlock (&peer->rdma_handling_lock);
+        goto fail;
+    }
+
+    g_mutex_unlock (&peer->rdma_handling_lock);
+
+    g_debug ("Request sent successfully.");
+
+    //Wait for response. The event-handler will remove this pointer
+    //once the remote side has responded.
+    while (priv->static_request) { usleep (100); };
+
+    if (stat->internal->valid == FALSE) {
+        g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                     "Failed to RDMA_SEND to peer '%lu'.", peer_rank);
+        goto fail;
+    }
+
+    g_mutex_unlock (&priv->static_rdma_lock);
+    g_mutex_unlock (&priv->connection_handling_lock);
+    return stat;
+
+
+fail:
+    g_free (stat->internal);
+    kiro_destroy_rdma_memory (rdma_mem);
+    g_free (stat);
+    g_mutex_unlock (&priv->static_rdma_lock);
+    g_mutex_unlock (&priv->connection_handling_lock);
+    return NULL;
+};
+
+
+KiroStaticRDMA* kiro_messenger_accept_static (KiroMessenger *self, gulong max_size, GError **error_out)
+{
+    GError *error = NULL;
+
+    g_return_val_if_fail (self != NULL, NULL);
+
+    KiroMessengerPrivate *priv = KIRO_MESSENGER_GET_PRIVATE (self);
+
+    if (!priv->peers) {
+        g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                     "Trying to perform an action on a messenger which is not connected.");
+        g_propagate_error (error_out, error);
+        return NULL;
+    }
+
+    g_mutex_lock (&priv->static_rdma_lock);
+
+    KiroStaticRDMAInternal *internal = g_malloc0 (sizeof (KiroStaticRDMAInternal));
+    internal->max_size = max_size;
+    internal->valid = FALSE;
+    priv->static_request = internal;
+
+    g_debug ("Setting up request to wait for STATIC_RDMA with max size %lu", max_size);
+
+    //Wait for incoming request. The event-hanlder will remove this pointer
+    //once a request from a remote peer was accepted.
+    while (priv->static_request) { usleep (100); };
+
+    if (internal->valid == FALSE) {
+        g_free (internal);
+        g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                     "Waiting for an incoming STATIC_RDMA request got interrupted.");
+        g_propagate_error (error_out, error);
+        return NULL;
+    }
+
+    g_debug ("STATIC_RDMA request accepted from peer %lu, with size %lu", internal->peer_rank, internal->local_mem->size);
+
+    KiroStaticRDMA *out = g_malloc0 (sizeof (KiroStaticRDMA));
+    out->mem = internal->local_mem->mem;
+    out->size = internal->local_mem->size;
+    out->peer_rank = internal->peer_rank;
+    out->id = priv->static_counter++;
+    out->internal = internal;
+
+    return out;
+};
+
+
+gboolean kiro_messenger_release_static (KiroMessenger *self, KiroStaticRDMA* static_mem, GError **error_out)
+{
+    GError *error = NULL;
+
+    g_return_val_if_fail (self != NULL, FALSE);
+
+    KiroMessengerPrivate *priv = KIRO_MESSENGER_GET_PRIVATE (self);
+
+    if (!static_mem->internal) {
+        g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                     "KiroStaticRDMA struct corrupted ('internal' points to NULL). Doing nothing.");
+        g_propagate_error (error_out, error);
+        return FALSE;
+    }
+
+    g_mutex_lock (&priv->static_rdma_lock);
+
+    kiro_destroy_rdma_memory (static_mem->internal->local_mem);
+    g_free (static_mem->internal);
+    g_free (static_mem);
+
+    g_mutex_unlock (&priv->static_rdma_lock);
+    return TRUE;
+};
+
+
+static gboolean
+push_pull_static (KiroMessenger *self, KiroStaticRDMA* static_mem, gboolean push, GError **error_out)
+{
+    GError *error = NULL;
+
+    g_return_val_if_fail (self != NULL, FALSE);
+
+    KiroMessengerPrivate *priv = KIRO_MESSENGER_GET_PRIVATE (self);
+
+    if (!static_mem->internal) {
+        g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                     "KiroStaticRDMA struct corrupted ('internal' points to NULL). Doing nothing.");
+        g_propagate_error (error_out, error);
+        return FALSE;
+    }
+
+    KiroStaticRDMAInternal *internal = static_mem->internal;
+    gulong peer_rank = internal->peer_rank;
+
+    g_mutex_lock (&priv->connection_handling_lock);
+
+    KiroPeer *peer = find_peer_by_rank (priv, peer_rank);
+    if (!peer) {
+        g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                     "No peer with rank '%lu' is connected.", peer_rank);
+        g_propagate_error (error_out, error);
+        g_mutex_unlock (&priv->connection_handling_lock);
+        return FALSE;
+    }
+
+    if (!peer->active) {
+        g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                     "Peer with rank '%lu' is no longer active.", peer_rank);
+        g_propagate_error (error_out, error);
+        g_mutex_unlock (&priv->connection_handling_lock);
+        return FALSE;
+    }
+
+    g_mutex_lock (&peer->rdma_handling_lock);
+
+
+    if (push) {
+        if (rdma_post_read (peer->conn, peer->conn, internal->local_mem->mem, internal->local_mem->size, \
+                            internal->local_mem->mr, 0, (uint64_t)internal->remote_mem.addr, internal->remote_mem.rkey)) {
+            g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                         "Failed to post RDMA_READ: %s ", strerror (errno));
+            goto fail;
+        }
+    }
+    else {
+        if (rdma_post_write (peer->conn, peer->conn, internal->local_mem->mem, internal->local_mem->size, \
+                            internal->local_mem->mr, 0, (uint64_t)internal->remote_mem.addr, internal->remote_mem.rkey)) {
+            g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                         "Failed to post RDMA_WRITE: %s ", strerror (errno));
+            goto fail;
+        }
+    }
+
+    struct ibv_wc send_wc;
+    if (rdma_get_send_comp (peer->conn, &send_wc) < 0) {
+        g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                "No send-completion for RDMA operation received: %s", strerror (errno));
+        goto fail;
+    }
+
+    switch (send_wc.status) {
+        case IBV_WC_SUCCESS:
+            g_debug ("Message RDMA read successful");
+            break;
+        case IBV_WC_RETRY_EXC_ERR:
+            g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                         "Peer '%lu' no longer responding", peer->rank);
+            goto fail;
+            break;
+        case IBV_WC_REM_ACCESS_ERR:
+            g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                         "Peer '%lu' has revoked access right to read data", peer->rank);
+            goto fail;
+            break;
+        default:
+            g_set_error (&error, KIRO_MESSENGER_ERROR, KIRO_MESSENGER_ERROR,
+                         "Could not read message data from peer '%lu'. Status %u", peer->rank, send_wc.status);
+            goto fail;
+    }
+
+    g_mutex_unlock (&peer->rdma_handling_lock);
+    g_mutex_unlock (&priv->connection_handling_lock);
+    return TRUE;
+
+fail:
+    g_mutex_unlock (&peer->rdma_handling_lock);
+    g_mutex_unlock (&priv->connection_handling_lock);
+    g_propagate_error (error_out, error);
+    return FALSE;
+};
+
+
+gboolean kiro_messenger_push_static (KiroMessenger *self, KiroStaticRDMA* static_mem, GError **error_out)
+{
+    return push_pull_static (self, static_mem, TRUE, error_out);
+};
+
+
+gboolean kiro_messenger_pull_static (KiroMessenger *self, KiroStaticRDMA* static_mem, GError **error_out)
+{
+    return push_pull_static (self, static_mem, FALSE, error_out);
+};
+
+
 void
 _foreach_peer_disconnect (gpointer peer_in, gpointer user_data)
 {
@@ -1302,15 +1622,14 @@ kiro_messenger_stop (KiroMessenger *self)
     g_return_if_fail (self != NULL);
     KiroMessengerPrivate *priv = KIRO_MESSENGER_GET_PRIVATE (self);
 
-    if (!priv->peers && !priv->base)
-        return;
+    if (!priv->peers && !priv->base) return;
 
     //Shut down event listening
     g_debug ("Stopping event handling...");
     priv->close_signal = TRUE;
 
-    //This function will try to take the connectio_hanling_lock
-    //so cll this before we take the lock ourselves.
+    //This function will try to take the connection_handling_lock
+    //so call this before we take the lock ourselves.
     kiro_messenger_stop_listen (self, NULL);
 
     g_mutex_lock (&priv->connection_handling_lock);
@@ -1322,6 +1641,7 @@ kiro_messenger_stop (KiroMessenger *self)
     }
     priv->peers = NULL;
     priv->rank_counter = 0;
+    priv->static_counter = 0;
 
     priv->close_signal = FALSE;
 
