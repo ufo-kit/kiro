@@ -58,7 +58,16 @@
     int 
 main ( int argc, char *argv[])
 {
+    // cudaDeviceReset causes the driver to clean up all state. While
+    // not mandatory in normal operation, it is good practice.  It is also
+    // needed to ensure correct operation when the application is being
+    // profiled. Calling cudaDeviceReset causes all profile data to be
+    // flushed before the application exits
+    cudaDeviceReset();
+
     // Benchmark variables
+    cudaEvent_t start, stop;
+    float milliseconds = 0;
     GTimer *timer = g_timer_new ();
     float t_host_infiniband = 0;
     float t_host_hosttodevice = 0;
@@ -138,37 +147,49 @@ main ( int argc, char *argv[])
             kiro_client_sync (kiroClient);
             t_host_infiniband += g_timer_elapsed (timer, NULL);
             // Copy data to graphics card
-            g_timer_reset (timer);
+            //g_timer_reset (timer);
+            cudaEventCreate(&start);
+            cudaEventCreate(&stop);
+            cudaEventRecord(start);
             cudaMemcpy (input_gpu, kiro_client_get_memory (kiroClient), kiro_client_get_memory_size (kiroClient), \
                 cudaMemcpyHostToDevice);
+            cudaEventRecord(stop);
             cudaDeviceSynchronize ();
-            t_host_hosttodevice += g_timer_elapsed (timer, NULL);
+            cudaEventElapsedTime(&milliseconds, start, stop);
+            t_host_hosttodevice += (milliseconds / 1000);
+            milliseconds = 0;
+            //t_host_hosttodevice += g_timer_elapsed (timer, NULL);
             // Run kernel on data.
             g_timer_reset (timer);
-            twice <<<(kiro_client_get_memory_size (kiroClient) - sizeof (unsigned long int)) / 1024, 1024>>> (input_gpu, kiro_client_get_memory_size (kiroClient), \
-                result_gpu, result_size);
+            twice <<<(kiro_client_get_memory_size (kiroClient) - sizeof (unsigned long int)) / 1024, 2048>>> (input_gpu, kiro_client_get_memory_size (kiroClient), result_gpu, result_size);
             cudaDeviceSynchronize ();
             t_host_algorithm += g_timer_elapsed (timer, NULL);
             // Copy data back to host memory.
             g_timer_reset (timer);
             cudaMemcpy (result_host, result_gpu, result_size, cudaMemcpyDeviceToHost);
-            cudaDeviceSynchronize ();
+            cudaEventSynchronize(stop);
+            //cudaDeviceSynchronize ();
             t_host_devicetohost += g_timer_elapsed (timer, NULL);
             // Status update over the last iterations.
             iterate -= 1;
             if (iterate == 0) {
                 // Print times.
                 float size_gb = ((float) kiro_client_get_memory_size (kiroClient) / (1024.0 * 1024.0 * 1024.0)) * iterations;
+                g_message ("Size: %luMByte %luKByte (=%luByte)", \
+                    (kiro_client_get_memory_size (kiroClient) - sizeof (unsigned long int)) / (1024 * 1024), \
+                    (kiro_client_get_memory_size (kiroClient) - sizeof (unsigned long int)) / (1024) - \
+                    (kiro_client_get_memory_size (kiroClient) - sizeof (unsigned long int)) / (1024 * 1024) * 1024, \
+                    kiro_client_get_memory_size (kiroClient) - sizeof (unsigned long int));
                 g_message ("t_host_infiniband: %.2f ms", (t_host_infiniband / iterations) * 1000);
                 g_message ("t_host_hosttodevice: %.2f ms", (t_host_hosttodevice / iterations) * 1000);
-                g_message ("t_host_algorithm: %.2f ms", (t_host_algorithm / iterations) * 1000);
+                g_message ("t_host_algorithm: %.5f ms", (t_host_algorithm / iterations) * 1000);
                 g_message ("t_host_devicetohost: %.2f ms", (t_host_devicetohost / iterations) * 1000);
 
                 // Print throughput.
-                g_message ("Throughput Infiniband: %.2f Gbyte/s", size_gb / t_host_infiniband);
-                g_message ("Throughput Host to Device: %.2f Gbyte/s", size_gb / t_host_hosttodevice);
-                g_message ("Throughput Algorithm: %.2f Gbyte/s", size_gb / t_host_algorithm);
-                g_message ("Throughput Device to Host: %.2f Gbyte/s\n", size_gb / t_host_devicetohost);
+                g_message ("Throughput Infiniband: %.2f Gbit/s", 8 * (size_gb / t_host_infiniband));
+                g_message ("Throughput Host to Device: %.2f Gbit/s", 8 * (size_gb / t_host_hosttodevice));
+                g_message ("Throughput Algorithm: %.2f Gbit/s", 8 * (size_gb / t_host_algorithm));
+                g_message ("Throughput Device to Host: %.2f Gbit/s\n", 8 * (size_gb / t_host_devicetohost));
 
                 // Reset all counters.
                 iterate = iterations;

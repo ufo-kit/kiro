@@ -62,7 +62,7 @@ main ( int argc, char *argv[])
     GTimer *timer = g_timer_new ();
     float t_host_infiniband = 0;
     float t_host_algorithm = 0;
-    const int iterations = 1000;
+    const int iterations = 100;
     int iterate = iterations;
 
     // Proxy variables
@@ -123,7 +123,7 @@ main ( int argc, char *argv[])
             t_host_infiniband += g_timer_elapsed (timer, NULL);
             // Run kernel on data.
             g_timer_reset (timer);
-            twice <<<(kiro_client_get_memory_size (kiroClient) - sizeof (unsigned long int)) / 1024, 1024>>> (kiro_client_get_memory (kiroClient), kiro_client_get_memory_size (kiroClient), \
+            twice <<<(kiro_client_get_memory_size (kiroClient) - sizeof (unsigned long int)) / 1024, 2048>>> (kiro_client_get_memory (kiroClient), kiro_client_get_memory_size (kiroClient), \
                 result_gpu, result_size);
             cudaDeviceSynchronize ();
             t_host_algorithm += g_timer_elapsed (timer, NULL);
@@ -132,12 +132,17 @@ main ( int argc, char *argv[])
             if (iterate == 0) {
                 // Print times.
                 float size_gb = ((float) kiro_client_get_memory_size (kiroClient) / (1024.0 * 1024.0 * 1024.0)) * iterations;
+                g_message ("Size: %luMByte %luKByte (=%luByte)", \
+                    (kiro_client_get_memory_size (kiroClient) - sizeof (unsigned long int)) / (1024 * 1024), \
+                    (kiro_client_get_memory_size (kiroClient) - sizeof (unsigned long int)) / (1024) - \
+                    (kiro_client_get_memory_size (kiroClient) - sizeof (unsigned long int)) / (1024 * 1024) * 1024, \
+                    kiro_client_get_memory_size (kiroClient) - sizeof (unsigned long int));
                 g_message ("t_host_infiniband: %.2f ms", (t_host_infiniband / iterations) * 1000);
-                g_message ("t_host_algorithm: %.2f ms", (t_host_algorithm / iterations) * 1000);
+                g_message ("t_host_algorithm: %.5f ms", (t_host_algorithm / iterations) * 1000);
 
                 // Print throughput.
-                g_message ("Throughput Infiniband: %.2f Gbyte/s", size_gb / t_host_infiniband);
-                g_message ("Throughput Algorithm: %.2f Gbyte/s", size_gb / t_host_algorithm);
+                g_message ("Throughput Infiniband: %.2f Gbit/s", 8 * (size_gb / t_host_infiniband));
+                g_message ("Throughput Algorithm: %.2f Gbit/s\n", 8 * (size_gb / t_host_algorithm));
 
                 // Reset all counters.
                 iterate = iterations;
