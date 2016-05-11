@@ -57,6 +57,7 @@ struct _KiroMessengerPrivate {
 
     gboolean                    ring_buffer_ready;  // Indicates if the ring buffer is created and ready to poll
     void                        *rb_poll_ptr;       // Points to the head of the ring buffer
+    void                        *rb_start_addr;     // Starting address of the ring buffer. Is used when a new client is connected (after all existing clients are disconencted)
 
     guint32                     msg_id;          // Used to hold and generate message IDs
     struct pending_message      *message;        // Keep all outstanding RDMA message MRs
@@ -319,8 +320,8 @@ rdma_write_message(KiroMessengerPrivate *priv)
       conn = priv->conn;
   struct kiro_connection_context *ctx = (struct kiro_connection_context *)conn->context;
 
-  struct kiro_rdma_meta_info *meta_info = (struct kiro_rdma_meta_info *)malloc(sizeof(struct kiro_rdma_meta_info));
-  meta_info->start_flag = 77;  // Indicates there is an incoming rdma message for the polling mechanism, also answer to life, the universe and everything
+  struct kiro_rdma_meta_info *meta_info = (struct kiro_rdma_meta_info *)g_malloc0(sizeof(struct kiro_rdma_meta_info));
+  meta_info->start_flag = 42;  // Indicates there is an incoming rdma message for the polling mechanism, also answer to life, the universe and everything
   meta_info->rdma_done = FALSE; // This will be set to true once the actual message is transferred
   meta_info->followup_msg_size = priv->message->rdma_mem->size;
   meta_info->next_message = ctx->peer_rb_tail + sizeof(struct kiro_rdma_meta_info) + priv->message->rdma_mem->size;
@@ -331,7 +332,7 @@ rdma_write_message(KiroMessengerPrivate *priv)
 
   kiro_register_rdma_memory(conn->pd, &meta_info_mr, meta_info, sizeof(struct kiro_rdma_meta_info),IBV_ACCESS_LOCAL_WRITE); // Registerting MR for the meta information
 
-  g_debug("Writing meta info of RDMA write in peer's ringbuffer at %p", ctx->peer_rb_tail);
+  g_debug("Writing meta info of rdma message at %p", ctx->peer_rb_tail);
   if (rdma_post_write (conn, conn->context, (void *)meta_info, sizeof(struct kiro_rdma_meta_info), meta_info_mr, 0, \
                       (uint64_t)ctx->peer_rb_tail, ctx->peer_rb_rkey)) {
       g_critical ("Failed to RDMA_WRITE to peer: %s", strerror (errno));
@@ -340,6 +341,7 @@ rdma_write_message(KiroMessengerPrivate *priv)
   g_debug ("RDMA Transfer of meta info initiated");
   wait_for_rdma_write_completion(priv, sizeof(struct kiro_rdma_meta_info), TRUE);
 
+  g_debug("Writing rdma message at %p", ctx->peer_rb_tail);
   if (rdma_post_write (conn, conn->context, priv->message->rdma_mem->mem, priv->message->rdma_mem->size, priv->message->rdma_mem->mr, 0, \
                       (uint64_t)ctx->peer_rb_tail, ctx->peer_rb_rkey)) {
       g_critical ("Failed to RDMA_WRITE to peer: %s", strerror (errno));
@@ -863,7 +865,7 @@ idle_handler_of_main_loop (KiroMessengerPrivate *priv)
     if(priv->ring_buffer_ready)
     {
       //struct kiro_connection_context *ctx = (struct kiro_connection_context *)priv->client->context;
-      if(*(int *)priv->rb_poll_ptr == 77)
+      if(*(int *)priv->rb_poll_ptr == 42)
       {
         // A new meta_info struct was written to the rb
         struct kiro_rdma_meta_info *meta_info = (struct kiro_rdma_meta_info *)priv->rb_poll_ptr;
@@ -883,16 +885,31 @@ idle_handler_of_main_loop (KiroMessengerPrivate *priv)
           pm->msg->message_handled = FALSE;
           // pm->rdma_mem = rdma_data_in;
           priv->message = pm;
+
+          /*
+            The following shouldn't be done 'cause test application tries to free allocated RDMA memory (payload) which will result in seg fault as this memory is still a part of RB.
+            And the ringbuffer once created, is supposed to be active as long as the server is active.
+            Solution: We zero this message' part of ring buffer (meta_info and actual message) and then increment out poll pointer and inform peer about the updated head pointer.
+
+            priv->message->msg->status = KIRO_MESSAGE_RECEIVED;
+          */
+
           g_hook_list_marshal_check (&(priv->rec_callbacks), FALSE, invoke_callbacks, priv->message->msg);
+          if ( TRUE != priv->message->msg->message_handled) {
+              g_debug ("No one registered callbacks for this message. Received data will be freed.");
+          }
+          if (priv->message) {
+              g_free (priv->message);
+          }
+          priv->message = NULL;
 
-          priv->rb_poll_ptr = meta_info->next_message;  // Updated poll pointer
+          priv->rb_poll_ptr = meta_info->next_message;
           g_debug("Ready for next rdma message");
-
+          g_debug("Will begin polling at %p", priv->rb_poll_ptr);
           // @TODO Send new rb_head_ptr to peer
         }
 
       }
-      //priv->message->msg->status = KIRO_MESSAGE_RECEIVED;
 
     }
     return TRUE;
