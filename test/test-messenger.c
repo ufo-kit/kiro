@@ -107,11 +107,3 @@ main ( int argc, char *argv[] )
     kiro_messenger_free (messenger);
     return 0;
 }
-
-
-
-
-
-
-
-
