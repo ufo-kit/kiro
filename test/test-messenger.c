@@ -80,7 +80,7 @@ main ( int argc, char *argv[] )
         gboolean can_leave = FALSE;
         kiro_messenger_add_send_callback (messenger, message_was_sent, &can_leave);
 
-        if (0 > kiro_messenger_submit_message (messenger, &msg, TRUE))
+        if (0 > kiro_messenger_submit_message (messenger, &msg, TRUE, TRUE))
             printf ("Sending failed...");
         else
             printf ("Message submitted successfully\n");
@@ -99,7 +99,7 @@ main ( int argc, char *argv[] )
             msg->msg = 1337;
             msg->payload = g_strdup ("Echo");
             msg->size = 5; // respect the NULL byte
-            kiro_messenger_submit_message (messenger, msg, TRUE);
+            kiro_messenger_submit_message (messenger, msg, TRUE, TRUE);
             answer = FALSE;
         }
     }

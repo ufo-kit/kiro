@@ -12,7 +12,7 @@ callback (struct KiroMessage *msg, gpointer user_data)
     gboolean *flag = (gboolean *)user_data;
     msg->message_handled = TRUE;
     if (msg->status == KIRO_MESSAGE_RECEIVED) {
-        free (msg->payload);
+        //free (msg->payload);
         msg->payload = NULL;
     }
     *flag = TRUE;
@@ -75,8 +75,8 @@ main ( int argc, char *argv[] )
         kiro_messenger_add_send_callback (messenger, callback, &transmitted);
 
         g_timer_reset (timer);
-        for (gint i = 0; i < iterations; i++) {
-            if (0 > kiro_messenger_submit_message (messenger, &msg, TRUE)) {
+        for (gint i = 1; i <= iterations; i++) {
+            if (0 > kiro_messenger_submit_message (messenger, &msg, TRUE, i==iterations)) {
                 printf ("Sending failed...\n");
                 exit(-1);
             }

@@ -82,7 +82,7 @@ struct _KiroMessengerClass {
 struct KiroMessage {
     enum KiroMessageStatus status; // Status of the message
     guint64     id;           // Unique ID of the message. This may not be changed by the user
-    guint32     msg;          // Space for application specific message semantics 
+    guint32     msg;          // Space for application specific message semantics
     guint64     size;         // Size of the messages payload in bytes
     gpointer    payload;      // Pointer to the payload of the message
     gboolean    message_handled; // FALSE initially, TRUE once the message was handled
@@ -185,7 +185,7 @@ typedef KiroContinueFlag (*KiroMessengerCallbackFunc)   (struct KiroMessage *mes
  * @callback: (scope call): Pointer to a #KiroReceiveCallbackFunc that will be invoked when a
  * messege is received
  * @user_data: Pointer to user data that will be passed to the callback function
- *   
+ *
  *   Registers the given callback function to be invoked every time the
  *   messenger receives a message.
  *
@@ -272,7 +272,7 @@ gboolean kiro_messenger_remove_send_callback (KiroMessenger *messenger, gulong c
  *   or not. The status field in the message struct can be checked to see if the
  *   message was sent successfully.
  */
-int kiro_messenger_submit_message (KiroMessenger *messenger, struct KiroMessage *message, gboolean take_ownership);
+int kiro_messenger_submit_message (KiroMessenger *messenger, struct KiroMessage *message, gboolean take_ownership, gboolean last_message);
 
 /**
  * kiro_messenger_stop:

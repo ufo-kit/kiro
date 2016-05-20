@@ -49,15 +49,6 @@ struct kiro_connection_context {
     struct kiro_rdma_mem    *cf_mr_send;            // Control-Flow Memory Region Send
     struct kiro_rdma_mem    *rdma_mr;               // Memory Region for RDMA Operations
 
-    // Pointers to peer's ring buffer
-    //struct kiro_rdma_mem    *peer_rb_tail;          // This is the location where new messages are put onto the ring buffer. It is advanced upon send completion. This is not shared with the peer
-    //struct kiro_rdma_mem    *peer_rb_head;          // This is where the peer is currenty polling its own ring buffer. We should not advance beyond this address. This is updated by the peer
-    void*                peer_rb_head;
-    void*                peer_rb_tail;
-    uint32_t             peer_rb_rkey;           // Remote key for the memory location
-
-    struct kiro_rdma_mem    *self_rb_head;          // (Server)Pointer where we poll for new RDMA writes by a peer. This is assigned during KIRO_REQ_RDMA by the peer
-
     struct ibv_mr           peer_mr;                // RDMA Memory Region Information of the peer
 
     void                    *container;             // Make the connection aware of its container (if any)
@@ -90,11 +81,11 @@ struct kiro_ctrl_msg {
         KIRO_RDMA_CANCEL,                           // Used to cancel pending RDMA transfer in KiroMessenger
         KIRO_PING,                                  // PING Message
         KIRO_PONG,                                  // PONG Message (PING reply)
-        KIRO_REALLOC,                               // Used by the server to notify the client about a new peer_mri
-        KIRO_UPD_RDMA                               // Used by server to notify client about increment in head pointer
+        KIRO_REALLOC                                // Used by the server to notify the client about a new peer_mri
     } msg_type;
 
-    struct ibv_mr peer_mri;
+    struct ibv_mr peer_mri; // Ring Buffer
+    struct ibv_mr pin_hd;   // Pinned down location for reading the head pointer
 };
 
 
@@ -118,8 +109,14 @@ struct kiro_rdma_meta_info {
   int followup_msg_size;    // Size of the payload
   void *next_message;       // Pointer to the next message
   gboolean rdma_done;       // This is polled for rdma write completion
+  gboolean last_message;
+  short message_id;
 };
 
+struct kiro_rdma_rb_status {
+  unsigned int processed_id;// Increments after every processing of payload
+  void *head;               //
+};
 
 static int
 kiro_attach_qp (struct rdma_cm_id *id)
