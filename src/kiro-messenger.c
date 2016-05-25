@@ -406,6 +406,7 @@ rdma_write_message(KiroMessengerPrivate *priv)
   else
       conn = priv->conn;
 
+  // Wait until there is free space available in peer's ring buffer to proceed with write
   while( !proceed_with_write(priv)) {};
 
   struct kiro_rdma_meta_info *meta_info = (struct kiro_rdma_meta_info *)g_malloc0(sizeof(struct kiro_rdma_meta_info));
@@ -1046,7 +1047,7 @@ idle_handler_of_main_loop (KiroMessengerPrivate *priv)
             g_debug("Ready for next rdma message. Polling at %p", priv->rb_poll_ptr);
           }
           struct kiro_rdma_rb_status *hd_mem = (struct kiro_rdma_rb_status *)priv->self_hd_rdma_mem->mem;
-          hd_mem->processed_id = 1729;
+          hd_mem->processed_id = meta_info->message_id;
           hd_mem->head = priv->rb_poll_ptr;
 
           // Cleaning up received message
@@ -1072,7 +1073,7 @@ idle_handler_of_main_loop (KiroMessengerPrivate *priv)
 
         // Notify peer that we processed messages and reset out poll pointer to the start of ring buffer. Used to synchronize both instances
         struct kiro_rdma_rb_status *hd_mem = (struct kiro_rdma_rb_status *)priv->self_hd_rdma_mem->mem;
-        hd_mem->processed_id = 1729;
+        // hd_mem->processed_id = 1729; Resetting of ring buffer is not processing a message
         hd_mem->head = priv->rb_poll_ptr;
 
         memset(temp_poll_ptr, 0, (size_t)sizeof(unsigned char));
@@ -1090,7 +1091,7 @@ idle_handler_of_main_loop (KiroMessengerPrivate *priv)
       // peer_rb_head is first set in ACK_RDMA.
       if(priv->rb_status->head != priv->peer_rb_head && priv->rb_status->head != NULL)
       {
-        g_debug("RB Head status changed to %p",priv->peer_rb_head);
+        g_debug("RB Head status changed to %p",priv->rb_status->head);
         priv->peer_rb_head = priv->rb_status->head;
         initiate_read_peer_rb_head(priv);
       }

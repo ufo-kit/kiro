@@ -12,7 +12,7 @@ callback (struct KiroMessage *msg, gpointer user_data)
     gboolean *flag = (gboolean *)user_data;
     msg->message_handled = TRUE;
     if (msg->status == KIRO_MESSAGE_RECEIVED) {
-        //free (msg->payload);
+        free (msg->payload);
         msg->payload = NULL;
     }
     *flag = TRUE;
