@@ -600,7 +600,7 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
                 if(NULL == priv->rb_start_ptr)
                 {
                     g_debug("Churning out a chunk of memory for peer");
-                    priv->rb_total_size = msg_in->peer_mri.length*15; // arbitrarily set to 10 times the requested size
+                    priv->rb_total_size = msg_in->peer_mri.length*12; // arbitrarily set to X times the requested size
                     // This is the actual ring buffer memory allocation we do when an active instance requests an RDMA for the first time.
                     rb_rdma_mem = kiro_create_rdma_memory (conn->pd, priv->rb_total_size, IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE);
                     memset(rb_rdma_mem->mem,0,priv->rb_total_size);
@@ -980,10 +980,9 @@ idle_handler_of_main_loop (KiroMessengerPrivate *priv)
       {
         // A new meta_info struct was written to the RB
         struct kiro_rdma_meta_info *meta_info = (struct kiro_rdma_meta_info *)priv->rb_poll_ptr;
-        temp_poll_ptr = priv->rb_poll_ptr;
         if(meta_info->rdma_done)
         {
-
+          temp_poll_ptr = priv->rb_poll_ptr;
           if(meta_info->message_id == priv->expecting_msg_id)
           {
             g_debug("Payload available, processing message %d", priv->expecting_msg_id);
@@ -1065,6 +1064,7 @@ idle_handler_of_main_loop (KiroMessengerPrivate *priv)
       }
       else if (*(unsigned char *)priv->rb_poll_ptr == 77)
       {
+        temp_poll_ptr = priv->rb_poll_ptr;
         // Ring buffer is wrapped back to the beginning
         g_debug("Peer notified that it has begun to put msgs at the beginning of RB");
         priv->rb_poll_ptr = priv->rb_start_ptr;
@@ -1074,6 +1074,8 @@ idle_handler_of_main_loop (KiroMessengerPrivate *priv)
         struct kiro_rdma_rb_status *hd_mem = (struct kiro_rdma_rb_status *)priv->self_hd_rdma_mem->mem;
         hd_mem->processed_id = 1729;
         hd_mem->head = priv->rb_poll_ptr;
+
+        memset(temp_poll_ptr, 0, (size_t)sizeof(unsigned char));
       }
     }
     if(priv->head_descriptor_ready)
