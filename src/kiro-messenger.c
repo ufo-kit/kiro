@@ -55,6 +55,30 @@ struct _KiroMessengerPrivate {
     GIOChannel                  *rdma_ec;        // GLib IO Channel encapsulation for the rdma event channel
     guint                       rdma_ec_id;      // ID of the source created by g_io_add_watch, needed to remove it again
 
+    // These are used in passive instance of messenger - The instance that listens for handshake
+    guint                       rb_total_size;      // Total size of the ring buffer
+    struct kiro_rdma_mem        *self_rb_rdma_mem;  // Pointer to RDMA accessible memory (ring buffer). This is assigned during KIRO_REQ_RDMA by the peer
+    gboolean                    ring_buffer_ready;  // Indicates if the ring buffer is created and ready to poll
+    void                        *rb_poll_ptr;       // Points to the head of the ring buffer
+    void                        *rb_start_ptr;      // Starting address of the ring buffer. Is used when a new client is connected (after all existing clients are disconnected)
+                                                    // So as to reuse an already created ring buffer
+    struct kiro_rdma_mem        *self_hd_rdma_mem;  // Pinned down location of head descriptor
+    short                       expecting_msg_id;   // Index starts from 1 as client tracks msg_id with index starting from 1. Is reset after every connection teardown
+
+    // These are used in active instance of messenger - The instance that begins handshake
+    unsigned int                processed_message_id;
+    void                        *peer_hd_addr;      // Addr of the peer's head descriptor (of its ring buffer)
+    uint32_t                    peer_hd_rkey;       // Remote key for the head descriptor
+    void                        *peer_rb_head;      // Location where the peer's RB is *probably* polling. Is updated frequently
+    void                        *peer_rb_tail;      // Location where client is going to write data to the RB
+    uint32_t                    peer_rb_rkey;       // Remote key for the ring buffer
+    void                        *peer_rb_start;     // Start of the buffer
+    void                        *peer_rb_end;       // End of the buffer
+    struct kiro_rdma_rb_status  *rb_status;         // A local memory location..Where remote peer's kiro_rdma_rb_status (head) is read into
+    struct ibv_mr               *rb_status_mr;      // IBV MR for above
+    gboolean                    head_descriptor_ready;  // Is set after receiving ACK_RDMA. Used to begin polling on rb_status
+    gboolean                    peer_rb_requested;      // Flag that is set after requesting RB from peer
+
     guint32                     msg_id;          // Used to hold and generate message IDs
     struct pending_message      *message;        // Keep all outstanding RDMA message MRs
 
@@ -75,6 +99,7 @@ struct pending_message {
     gboolean message_is_mine;
     struct KiroMessage *msg;
     struct kiro_rdma_mem *rdma_mem;
+    gboolean last_message;
 };
 
 
@@ -91,6 +116,7 @@ kiro_messenger_new (void)
 void
 kiro_messenger_free (KiroMessenger *self)
 {
+    sleep(1); // To allow RDMA write to complete
     g_return_if_fail (self != NULL);
     if (KIRO_IS_MESSENGER (self))
         g_object_unref (self);
@@ -261,6 +287,178 @@ send_msg (struct rdma_cm_id *id, struct kiro_rdma_mem *r, uint32_t imm_data)
     return retval;
 }
 
+gboolean
+wait_for_rdma_write_completion(KiroMessengerPrivate *priv, int increment_tail_bytes, gboolean update_tail)
+{
+  struct ibv_wc wc;
+  gboolean ret_val = FALSE;
+  struct rdma_cm_id *conn = NULL;
+
+  if (priv->type == KIRO_MESSENGER_SERVER)
+      conn = priv->client;
+  else
+      conn = priv->conn;
+
+  if (rdma_get_send_comp (conn, &wc) < 0) {
+      g_critical ("No send completion for RDMA_WRITE received: %s", strerror (errno));
+      return FALSE;
+  }
+
+  switch (wc.status) {
+      case IBV_WC_SUCCESS:
+          //g_debug ("RDMA transfer was successfull");
+          priv->message->msg->status = KIRO_MESSAGE_SEND_SUCCESS;
+          if(update_tail) // Should only update tail pointer when true
+          {
+            priv->peer_rb_tail += increment_tail_bytes; // We are using a void pointer, size in no.of bytes are incremented
+            //g_debug("Ringbuffer updated..Tail pointing at : %p",priv->peer_rb_tail);
+          }
+          ret_val = TRUE;
+          break;
+      case IBV_WC_RETRY_EXC_ERR:
+          g_critical ("Peer no longer responding");
+          priv->message->msg->status = KIRO_MESSAGE_SEND_FAILED;
+          break;
+      case IBV_WC_REM_ACCESS_ERR:
+          g_critical ("Peer has revoked access right to write data");
+          priv->message->msg->status = KIRO_MESSAGE_SEND_FAILED;
+          break;
+      default:
+          g_critical ("Could not send message data to the peer. Status %u", wc.status);
+          priv->message->msg->status = KIRO_MESSAGE_SEND_FAILED;
+  }
+
+  return ret_val;
+}
+
+void
+initiate_read_peer_rb_head(KiroMessengerPrivate *priv)
+{
+  struct rdma_cm_id *conn = NULL;
+  if (priv->type == KIRO_MESSENGER_SERVER)
+      conn = priv->client;
+  else
+      conn = priv->conn;
+
+  if(rdma_post_read (conn, conn->context, (void *)priv->rb_status, sizeof(struct kiro_rdma_rb_status), priv->rb_status_mr, 0, \
+                    (uint64_t)priv->peer_hd_addr, priv->peer_hd_rkey)) {
+        g_critical("Failed to read head status from remote %s", strerror (errno));
+  }
+}
+
+gboolean
+proceed_with_write(KiroMessengerPrivate *priv)
+{
+  gboolean ret_val = FALSE;
+  if((long unsigned int)(priv->peer_rb_end - priv->peer_rb_tail) > (long unsigned int)(sizeof(struct kiro_rdma_meta_info)+priv->message->rdma_mem->size))
+  {
+    ret_val = TRUE;
+  }
+  else
+  {
+    // There is no more free space for meta+msg at the end region of the buffer. Below checks if peer's head has progressed
+    if((long unsigned int)(priv->peer_rb_head - priv->peer_rb_start) > (long unsigned int)(sizeof(struct kiro_rdma_meta_info)+priv->message->rdma_mem->size))
+    {
+      // Below if check's if there is enough space for a reset_flag of size unsigned char is available
+      if((long unsigned int)(priv->peer_rb_end - priv->peer_rb_tail) > (long unsigned int)(sizeof(unsigned char)))
+      {
+        // Beginning area of the RB is free, so write a reset_flag conveying that the next message after this reset_flag will be placed at the start location of RB
+        struct rdma_cm_id *conn = NULL;
+        if (priv->type == KIRO_MESSENGER_SERVER)
+            conn = priv->client;
+        else
+            conn = priv->conn;
+
+        unsigned char *reset_flag = (unsigned char *)g_malloc0(sizeof(unsigned char));
+        *reset_flag = 77;
+        struct ibv_mr *reset_flag_mr;
+        kiro_register_rdma_memory(conn->pd, &reset_flag_mr, reset_flag, sizeof(unsigned char),IBV_ACCESS_LOCAL_WRITE); // Registerting MR for the reset flag
+
+        g_debug("Writing RB reset_flag\n");
+        if (rdma_post_write (conn, conn->context, (void *)reset_flag, sizeof(unsigned char), reset_flag_mr, 0, \
+                            (uint64_t)priv->peer_rb_tail, priv->peer_rb_rkey)) {
+            g_critical ("Failed to RDMA_WRITE reset_flag to peer: %s", strerror (errno));
+            return FALSE;
+        }
+        wait_for_rdma_write_completion(priv, sizeof(unsigned char), FALSE);
+
+        // Manually resetting tail pointer on active instance to the beginning of the peer's RB
+        priv->peer_rb_tail = priv->peer_rb_start;
+        ret_val = FALSE;
+      }
+      else
+      {
+        // This is a special case where there is no space left for writing a start_flag :/ !
+        g_critical("Unhandled special case where there is no memory left for unsigned char :/");
+        ;
+      }
+    }
+  }
+  return ret_val;
+}
+
+gboolean
+rdma_write_message(KiroMessengerPrivate *priv)
+{
+  struct rdma_cm_id *conn = NULL;
+  if (priv->type == KIRO_MESSENGER_SERVER)
+      conn = priv->client;
+  else
+      conn = priv->conn;
+
+  // Wait until there is free space available in peer's ring buffer to proceed with write
+  while( !proceed_with_write(priv)) {};
+
+  struct kiro_rdma_meta_info *meta_info = (struct kiro_rdma_meta_info *)g_malloc0(sizeof(struct kiro_rdma_meta_info));
+  meta_info->start_flag = 42;  // Indicates there is an incoming rdma message for the polling mechanism, also answer to life, the universe and everything
+  if(priv->message->last_message)
+    meta_info->last_message = TRUE;  // Passive instance resets and deregisters its RB after processing a payload with this flag
+  else
+    meta_info->last_message = FALSE;
+
+  meta_info->rdma_done = FALSE; // This will be set to true once the actual message is transferred
+  meta_info->followup_msg_size = priv->message->rdma_mem->size;
+  meta_info->next_message = priv->peer_rb_tail + sizeof(struct kiro_rdma_meta_info) + priv->message->rdma_mem->size;
+  meta_info->message_id = priv->msg_id;
+
+  struct ibv_mr *meta_info_mr;
+
+  void *meta_info_pointer_peer = priv->peer_rb_tail;
+
+  kiro_register_rdma_memory(conn->pd, &meta_info_mr, meta_info, sizeof(struct kiro_rdma_meta_info),IBV_ACCESS_LOCAL_WRITE); // Registerting MR for the meta information
+
+  g_debug("Writing meta_info of rdma message at %p", priv->peer_rb_tail);
+  if (rdma_post_write (conn, conn->context, (void *)meta_info, sizeof(struct kiro_rdma_meta_info), meta_info_mr, 0, \
+                      (uint64_t)priv->peer_rb_tail, priv->peer_rb_rkey)) {
+      g_critical ("Failed to RDMA_WRITE to peer: %s", strerror (errno));
+      return FALSE;
+  }
+  wait_for_rdma_write_completion(priv, sizeof(struct kiro_rdma_meta_info), TRUE);
+
+  g_debug("Writing rdma message at %p", priv->peer_rb_tail);
+  if (rdma_post_write (conn, conn->context, priv->message->rdma_mem->mem, priv->message->rdma_mem->size, priv->message->rdma_mem->mr, 0, \
+                      (uint64_t)priv->peer_rb_tail, priv->peer_rb_rkey)) {
+      g_critical ("Failed to RDMA_WRITE to peer: %s", strerror (errno));
+      return FALSE;
+  }
+  wait_for_rdma_write_completion(priv, priv->message->rdma_mem->size, TRUE);
+
+  g_debug("Setting rdma done flag in meta_info to true");
+  // The tail pointer to the peer's ring buffer has already been updated
+  meta_info->rdma_done = TRUE; // Setting this true and then writing it in the peer ring buffer
+  if (rdma_post_write (conn, conn->context, (void *)meta_info, sizeof(struct kiro_rdma_meta_info), meta_info_mr, 0, \
+                      (uint64_t)meta_info_pointer_peer, priv->peer_rb_rkey)) {
+      g_critical ("Failed to RDMA_WRITE to peer: %s", strerror (errno));
+      return FALSE;
+  }
+  wait_for_rdma_write_completion(priv, sizeof(struct kiro_rdma_meta_info), FALSE);  // Donot update tail pointer at this RDMA write, Parameter 2 is don't care with FALSE flag
+
+  // After every write we request for a RDMA read
+  initiate_read_peer_rb_head(priv);
+
+  return TRUE;
+}
+
 
 static gboolean
 process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
@@ -357,7 +555,7 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
                 g_free (msg_out);
             }
             break;
-        }
+      }
         case KIRO_ACK_MSG:
         {
             g_debug ("Got ACK for message '%u' from peer", msg_in->peer_mri.handle);
@@ -384,11 +582,10 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
         }
         case KIRO_REQ_RDMA:
         {
-            // The client uses the peer_mri structure to tell us the length of
-            // the requested message and the 'handle', which we need to reply
-            // back to match the client REQ messages with our ACK messages.
+            // Active instance requests for RDMA. We send our head pointer of ring buffer
             g_debug ("Peer wants to send a message of size %lu", msg_in->peer_mri.length);
-            struct kiro_rdma_mem *rdma_data_in = NULL;
+            struct kiro_rdma_mem *rb_rdma_mem = NULL;
+            struct kiro_rdma_mem *hd_rdma_mem = NULL;
             struct kiro_ctrl_msg *msg_out = (struct kiro_ctrl_msg *) (ctx->cf_mr_send->mem);
             msg_out->msg_type = KIRO_REJ_RDMA; // REJ by default. Only change if everyhing is okay
 
@@ -396,48 +593,77 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
                 g_debug ("But only one pending message is allowed");
             }
             else if (!priv->rec_callbacks.hooks) {
-                g_debug ("But noone if listening for any messages");
+                g_debug ("But no one is listening for any messages");
             }
             else {
-                rdma_data_in = kiro_create_rdma_memory (conn->pd, msg_in->peer_mri.length, \
-                                                       IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE);
 
-                if (!rdma_data_in) {
-                    g_critical ("Failed to create message MR for peer message!");
+                // If there is already a ring buffer allocated. Use it, otherwise create one
+                if(NULL == priv->rb_start_ptr)
+                {
+                    g_debug("Churning out a chunk of memory for peer");
+                    priv->rb_total_size = msg_in->peer_mri.length*12; // arbitrarily set to X times the requested size
+                    // This is the actual ring buffer memory allocation we do when an active instance requests an RDMA for the first time.
+                    rb_rdma_mem = kiro_create_rdma_memory (conn->pd, priv->rb_total_size, IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE);
+                    memset(rb_rdma_mem->mem,0,priv->rb_total_size);
+
+                    priv->self_rb_rdma_mem = rb_rdma_mem;  // Our own copy of the newly create kiro_rdma_mem
+                    priv->rb_poll_ptr = rb_rdma_mem->mem;  // Our own copy of the head. We use this to begin polling at this location of the ring buffer (mem element of structure)
+                    priv->rb_start_ptr = rb_rdma_mem->mem; // Our own copy of the starting address of the ring buffer
+
+                    /*
+                    following creates a memory region where passive instance' head is available for active side to remotely read from passive side
+                    This memory location is passed to active side along with ring buffer
+                    */
+                    g_debug("Creating a mem for active instance to read RB head");
+                    hd_rdma_mem = kiro_create_rdma_memory (conn->pd, sizeof(struct kiro_rdma_rb_status), IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE);
+                    memset(hd_rdma_mem->mem,0,sizeof(struct kiro_rdma_rb_status));
+
+                    // hd abbreviates is head descriptor
+                    priv->self_hd_rdma_mem = hd_rdma_mem;
+                }
+                else
+                {
+                    g_debug("3R. Reusing existing ring buffer");
+                    // The 3rd param is non null so a new region will not be allocated
+                    kiro_register_rdma_memory(conn->pd, &priv->self_rb_rdma_mem->mr, priv->self_rb_rdma_mem->mem, priv->rb_total_size, IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE);
+                    kiro_register_rdma_memory(conn->pd, &priv->self_hd_rdma_mem->mr, priv->self_hd_rdma_mem->mem, sizeof(struct kiro_rdma_rb_status), IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_LOCAL_WRITE);
+                    rb_rdma_mem = priv->self_rb_rdma_mem;
+                    hd_rdma_mem = priv->self_hd_rdma_mem;
+                }
+
+                g_debug("RB is x%d the requested message size", (int)(priv->rb_total_size/msg_in->peer_mri.length));
+
+                if (!rb_rdma_mem || !hd_rdma_mem) {
+                    g_critical ("Failed to give RB HD info for peer !");
                 }
                 else {
-                    g_debug ("Sending message MR to peer");
+                    g_debug ("Sending RB head ptr %p to peer", rb_rdma_mem->mem);
+                    g_debug ("RB Ends at %p", rb_rdma_mem->mem+priv->rb_total_size);
+                    g_debug ("Sending HD ptr %p to peer", hd_rdma_mem->mem);
                     msg_out->msg_type = KIRO_ACK_RDMA;
-                    msg_out->peer_mri = *rdma_data_in->mr;
+                    msg_out->peer_mri = *rb_rdma_mem->mr;
                     msg_out->peer_mri.handle = msg_in->peer_mri.handle;
-
-                    struct pending_message *pm = (struct pending_message *)g_malloc0(sizeof (struct pending_message));
-                    pm->direction = KIRO_MESSAGE_RECEIVE;
-                    pm->handle = msg_in->peer_mri.handle;
-                    pm->msg = (struct KiroMessage *)g_malloc0 (sizeof (struct KiroMessage));
-                    pm->msg->status = KIRO_MESSAGE_PENDING;
-                    pm->msg->id = msg_in->peer_mri.handle;
-                    pm->msg->msg = ntohl (wc.imm_data); //is in network byte order
-                    pm->msg->size = msg_in->peer_mri.length;
-                    pm->msg->payload = rdma_data_in->mem;
-                    pm->msg->message_handled = FALSE;
-                    pm->rdma_mem = rdma_data_in;
-                    priv->message = pm;
+                    msg_out->pin_hd = *hd_rdma_mem->mr;
                 }
             }
 
             if (0 > send_msg (conn, ctx->cf_mr_send, 0)) {
-                g_critical ("Failed to send RDMA credentials to peer!");
-                if (rdma_data_in) {
+                g_critical ("Failed to send RDMA credentials(ring buffer head) to peer!");
+                if (rb_rdma_mem) {
                     // If we reach this point, we definitely have a pending
                     // message. Clean it up!
-                    kiro_destroy_rdma_memory (rdma_data_in);
+                    kiro_destroy_rdma_memory (rb_rdma_mem);
+                    kiro_destroy_rdma_memory (hd_rdma_mem);
                     g_free (priv->message->msg);
                     g_free (priv->message);
                     priv->message = NULL;
                 }
             }
-            g_debug ("RDMA message reply sent to peer");
+            g_debug("Ready for new rdma message. Polling at %p",priv->rb_poll_ptr);
+            priv->ring_buffer_ready = TRUE;
+            priv->expecting_msg_id = 1;
+            //g_debug ("RDMA message reply sent to peer");
+            goto end_rmda_eh;
             break;
         }
         case KIRO_REJ_RDMA:
@@ -471,7 +697,8 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
         }
         case KIRO_ACK_RDMA:
         {
-            g_debug ("Got RDMA credentials for message '%u' from peer", msg_in->peer_mri.handle);
+            // @TODO SASI. we no longer require to maintain which message we got RDMA ack as we will be requesting RDMA only once (for the first time).
+            g_debug ("Received ring buffer head for RDMA Request");
             if (priv->message->handle != msg_in->peer_mri.handle) {
                 g_debug ("Reply is for the wrong message...");
                 //
@@ -480,65 +707,36 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
                 goto done;
             }
             else {
+                priv->peer_rb_head = msg_in->peer_mri.addr;  // Peer head is at the beginning of the buffer during the first message
+                g_debug("Peers ring buffer head is at : %p",priv->peer_rb_head);
+                priv->peer_rb_tail = msg_in->peer_mri.addr;
+                priv->peer_rb_rkey = msg_in->peer_mri.rkey;
+                priv->peer_rb_start = msg_in->peer_mri.addr;
+                priv->peer_rb_end = msg_in->peer_mri.addr + msg_in->peer_mri.length; // + Offset in bytes
 
-                if (rdma_post_write (conn, conn, priv->message->rdma_mem->mem, priv->message->rdma_mem->size, priv->message->rdma_mem->mr, 0, \
-                                    (uint64_t)msg_in->peer_mri.addr, msg_in->peer_mri.rkey)) {
-                    g_critical ("Failed to RDMA_WRITE to peer: %s", strerror (errno));
-                    goto cleanup;
-                }
+                priv->peer_hd_addr = msg_in->pin_hd.addr;
+                priv->peer_hd_rkey = msg_in->pin_hd.rkey;
+                g_debug("Peers head desc head is at : %p",priv->peer_hd_addr);
 
-                struct ibv_wc wc;
-                if (rdma_get_send_comp (conn, &wc) < 0) {
-                    g_critical ("No send completion for RDMA_WRITE received: %s", strerror (errno));
-                    goto cleanup;
-                }
+                g_debug("Length of peer memory region is x%d the requested size", (int)(msg_in->peer_mri.length/priv->message->rdma_mem->size));
 
-                switch (wc.status) {
-                    case IBV_WC_SUCCESS:
-                        g_debug ("Message RDMA transfer successfull");
-                        priv->message->msg->status = KIRO_MESSAGE_SEND_SUCCESS;
-                        break;
-                    case IBV_WC_RETRY_EXC_ERR:
-                        g_critical ("Peer no longer responding");
-                        priv->message->msg->status = KIRO_MESSAGE_SEND_FAILED;
-                        break;
-                    case IBV_WC_REM_ACCESS_ERR:
-                        g_critical ("Peer has revoked access right to write data");
-                        priv->message->msg->status = KIRO_MESSAGE_SEND_FAILED;
-                        break;
-                    default:
-                        g_critical ("Could not send message data to the peer. Status %u", wc.status);
-                        priv->message->msg->status = KIRO_MESSAGE_SEND_FAILED;
-                }
+                priv->rb_status = (struct kiro_rdma_rb_status *)g_malloc0(sizeof(struct kiro_rdma_rb_status));
+                kiro_register_rdma_memory(conn->pd, &priv->rb_status_mr, priv->rb_status, sizeof(struct kiro_rdma_rb_status),IBV_ACCESS_LOCAL_WRITE); // Registering MR for read head
+                priv->head_descriptor_ready = TRUE;
+
+                g_debug("Writing message %d",priv->msg_id);
+                if( FALSE == rdma_write_message(priv))
+                  goto cleanup; // Doesnot matter, fallthrough happens nevertheless
             }
 
-            struct kiro_ctrl_msg *msg_out = (struct kiro_ctrl_msg *) (ctx->cf_mr_send->mem);
-            msg_out->peer_mri = msg_in->peer_mri;
-
-            if (priv->message->msg->status == KIRO_MESSAGE_SEND_SUCCESS)
-                msg_out->msg_type = KIRO_RDMA_DONE;
-            else
-                msg_out->msg_type = KIRO_RDMA_CANCEL;
-
-            if (0 > send_msg (conn, ctx->cf_mr_send, 0)) {
-                //
-                //FIXME: If this ever happens, the peer will be in an undefined
-                //state. We don't know if the peer has already cleared our
-                //pending message request or not. Its almost impossible to
-                //recover from this... Maybe just disconnect 'broken pipe'?
-                //We'll interrupt the program for now...
-                //
-                g_error ("Failed to send transfer status to peer!");
-            }
-            g_debug ("Message transfer done.");
-
+            // This cleans up local pending message in active and releases transmit lock in the calling application
             cleanup:
-                g_debug ("Cleaning up pending message ...");
+                g_debug ("Cleaning up pending message (1st)...");
                 priv->message->rdma_mem->mem = NULL; // mem points to the original message data! DON'T FREE IT JUST YET!
                 kiro_destroy_rdma_memory (priv->message->rdma_mem);
                 g_hook_list_marshal_check (&(priv->send_callbacks), FALSE, invoke_callbacks, priv->message->msg);
                 if (priv->message->message_is_mine && !priv->message->msg->message_handled) {
-                    g_debug ("Message is owned by the messenger and noone wants to handle it. Cleaning it up...");
+                    g_debug ("Message is owned by the messenger and no one wants to handle it. Cleaning it up...");
                     g_free (priv->message->msg->payload);
                     g_free (priv->message->msg);
                 }
@@ -547,10 +745,12 @@ process_rdma_event (GIOChannel *source, GIOCondition condition, gpointer data)
                 //
                 //TODO: Inform the peer about failed send?
                 //
+                goto end_rmda_eh;
                 break; //case KIRO_ACK_RDMA:
         }
         case KIRO_RDMA_DONE:
         {
+            // @TODO SASI. This case should be implemented in the cb handler that polls ring buffer for data, so that the server doesnot further reject RDMA requests
             g_debug ("Peer has signalled message transfer success");
             priv->message->msg->status = KIRO_MESSAGE_RECEIVED;
             g_hook_list_marshal_check (&(priv->rec_callbacks), FALSE, invoke_callbacks, priv->message->msg);
@@ -704,7 +904,6 @@ process_cm_event (GIOChannel *source, GIOCondition condition, gpointer data)
                     priv->client = NULL;
                     priv->rdma_ec = NULL;
                     priv->rdma_ec_id = 0;
-
                 }
 
                 // I'm pretty sure this is not true any more. But i'll keep it
@@ -753,9 +952,16 @@ start_messenger_main_loop (gpointer data)
 }
 
 
+/**
+  The purpose of this is three fold:
+  1: Check if there was any close_signal set
+  2: Poll ring buffer at head for arrival of new data
+  3: Poll head descriptor / kiro_rdma_rb_status for changes in address of RB pointed by the peer
+**/
 gboolean
-stop_messenger_main_loop (KiroMessengerPrivate *priv)
+idle_handler_of_main_loop (KiroMessengerPrivate *priv)
 {
+    void *temp_poll_ptr;
     if (priv->close_signal) {
         // Remove the IO Channel Sources from the main loop
         // This will also unref their respective GIOChannels
@@ -768,6 +974,127 @@ stop_messenger_main_loop (KiroMessengerPrivate *priv)
         g_main_loop_quit (priv->main_loop);
         g_debug ("Event handling stopped");
         return FALSE;
+    }
+    if(priv->ring_buffer_ready)
+    {
+      if(*(unsigned char *)priv->rb_poll_ptr == 42)
+      {
+        // A new meta_info struct was written to the RB
+        struct kiro_rdma_meta_info *meta_info = (struct kiro_rdma_meta_info *)priv->rb_poll_ptr;
+        if(meta_info->rdma_done)
+        {
+          temp_poll_ptr = priv->rb_poll_ptr;
+          if(meta_info->message_id == priv->expecting_msg_id)
+          {
+            g_debug("Payload available, processing message %d", priv->expecting_msg_id);
+            priv->expecting_msg_id++;
+          }
+          else if(meta_info->message_id < priv->expecting_msg_id)
+          {
+            // Processing of ring buffer is faster than incoming message rate.
+            // So return idle handler & continue to poll until we receive the message we expect
+            return TRUE;
+          }
+          else
+          {
+            // This block is executed if messages in RB are not in order that is expected
+            g_critical("RB: %d  EX: %d",meta_info->message_id, priv->expecting_msg_id);
+            g_critical("Lost track of messages in ring buffer");
+            // Prevent processing of unknown message by returning idle handler immediately
+            return FALSE;
+          }
+
+          void *next_msg_ptr;
+          struct pending_message *pm = (struct pending_message *)g_malloc0(sizeof (struct pending_message));
+          pm->direction = KIRO_MESSAGE_RECEIVE;
+          //pm->handle = msg_in->peer_mri.handle;
+          pm->msg = (struct KiroMessage *)g_malloc0 (sizeof (struct KiroMessage));
+          pm->msg->status = KIRO_MESSAGE_PENDING;
+          pm->msg->id = meta_info->message_id;
+          //pm->msg->msg = ntohl (wc.imm_data); //is in network byte order
+          pm->msg->size = meta_info->followup_msg_size;
+          pm->msg->payload = priv->rb_poll_ptr+sizeof(struct kiro_rdma_meta_info);  // Offset from meta_info memory location
+          pm->msg->message_handled = FALSE;
+          // pm->rdma_mem = rb_rdma_mem;
+          priv->message = pm;
+
+          next_msg_ptr = meta_info->next_message;
+
+          /*
+            The following was crutial part of KIRO genericMessenger.
+            But, in enhancedMessenger this shouldn't be done because test application tries to free allocated RDMA memory (payload) which will result in seg fault as this memory is still a part of RB.
+            And the ringbuffer once created, is supposed to be alive as long as the passive side is alive.
+            Solution: We zero this message' part of ring buffer (meta_info and actual message) and then increment out poll pointer and inform peer about the updated head pointer.
+
+            priv->message->msg->status = KIRO_MESSAGE_RECEIVED;
+          */
+
+          g_hook_list_marshal_check (&(priv->rec_callbacks), FALSE, invoke_callbacks, priv->message->msg);
+
+          if(meta_info->last_message)
+          {
+            g_debug("Last message sent by the active instance");
+            // This is the last message sent by the active side, since we have processed it we maually reset our RB for a new handshake
+            // De-registers memory region associated to the allocated ring buffer
+            ibv_dereg_mr(priv->self_rb_rdma_mem->mr);
+            priv->rb_poll_ptr = priv->rb_start_ptr;
+            priv->ring_buffer_ready = FALSE;
+            priv->expecting_msg_id = 1;
+          }
+          else
+          {
+            priv->rb_poll_ptr = next_msg_ptr;
+            g_debug("Ready for next rdma message. Polling at %p", priv->rb_poll_ptr);
+          }
+          struct kiro_rdma_rb_status *hd_mem = (struct kiro_rdma_rb_status *)priv->self_hd_rdma_mem->mem;
+          hd_mem->processed_id = meta_info->message_id;
+          hd_mem->head = priv->rb_poll_ptr;
+
+          // Cleaning up received message
+          if ( TRUE != priv->message->msg->message_handled) {
+              g_debug ("No one registered callbacks for this message. Received data will be freed.");
+          }
+          if (priv->message) {
+              g_free (priv->message);
+              // memset memory region of meta_info and the message with zero
+              memset(temp_poll_ptr, 0, (size_t)sizeof(struct kiro_rdma_meta_info)+meta_info->followup_msg_size);
+          }
+          priv->message = NULL;
+
+        }
+      }
+      else if (*(unsigned char *)priv->rb_poll_ptr == 77)
+      {
+        temp_poll_ptr = priv->rb_poll_ptr;
+        // Ring buffer is wrapped back to the beginning
+        g_debug("Peer notified that it has begun to put msgs at the beginning of RB");
+        priv->rb_poll_ptr = priv->rb_start_ptr;
+        g_debug("Resetting poll ptr. Polling at %p", priv->rb_poll_ptr);
+
+        // Notify peer that we processed messages and reset out poll pointer to the start of ring buffer. Used to synchronize both instances
+        struct kiro_rdma_rb_status *hd_mem = (struct kiro_rdma_rb_status *)priv->self_hd_rdma_mem->mem;
+        // hd_mem->processed_id = 1729; Resetting of ring buffer is not processing a message
+        hd_mem->head = priv->rb_poll_ptr;
+
+        memset(temp_poll_ptr, 0, (size_t)sizeof(unsigned char));
+      }
+    }
+    if(priv->head_descriptor_ready)
+    {
+      /** In an ideal scenario...
+          1. The client/active instance writes a message to the passive/server ring buffer
+          2. The server/listener/passive processes incoming message and copies its new head pointer to the head descriptor (an memory that is remotely accessible)
+          3. Simultaneously, the client/active instance of messenger initiates an rdma_read to copy it to a local memory
+          4. We poll this local memory for changes.
+          Note that this program flow is probably unpredictable because we are not using any synchronizations provided by IB such as completions
+      **/
+      // peer_rb_head is first set in ACK_RDMA.
+      if(priv->rb_status->head != priv->peer_rb_head && priv->rb_status->head != NULL)
+      {
+        g_debug("RB Head status changed to %p",priv->rb_status->head);
+        priv->peer_rb_head = priv->rb_status->head;
+        initiate_read_peer_rb_head(priv);
+      }
     }
     return TRUE;
 }
@@ -864,7 +1191,7 @@ kiro_messenger_start (KiroMessenger *self, const char *address, const char *port
     }
 
     priv->main_loop = g_main_loop_new (NULL, FALSE);
-    g_idle_add ((GSourceFunc)stop_messenger_main_loop, priv);
+    g_idle_add ((GSourceFunc)idle_handler_of_main_loop, priv);
     priv->conn_ec = g_io_channel_unix_new (priv->ec->fd);
     priv->conn_ec_id = g_io_add_watch (priv->conn_ec, G_IO_IN | G_IO_PRI, process_cm_event, (gpointer)priv);
     priv->main_thread = g_thread_new ("KIRO Messenger main loop", start_messenger_main_loop, priv->main_loop);
@@ -892,7 +1219,7 @@ fail:
 
 
 int
-kiro_messenger_submit_message (KiroMessenger *self, struct KiroMessage *msg, gboolean take_ownership)
+kiro_messenger_submit_message (KiroMessenger *self, struct KiroMessage *msg, gboolean take_ownership, gboolean last_message)
 {
     g_return_val_if_fail (self != NULL, -1);
     KiroMessengerPrivate *priv = KIRO_MESSENGER_GET_PRIVATE (self);
@@ -912,58 +1239,107 @@ kiro_messenger_submit_message (KiroMessenger *self, struct KiroMessage *msg, gbo
         conn = priv->conn;
     }
 
-    struct pending_message *pm = (struct pending_message *)g_malloc0(sizeof (struct pending_message));
-    if (!pm) {
+    // If NULL it implies that we did not request for RDMA yet
+    if(priv->peer_rb_requested == FALSE)
+    {
+      g_debug("Requesting RDMA RB, HD");
+      priv->peer_rb_requested = TRUE;
+      struct pending_message *pm = (struct pending_message *)g_malloc0(sizeof (struct pending_message));
+      if (!pm) {
+          goto fail;
+      }
+      pm->direction = KIRO_MESSAGE_SEND;
+      pm->message_is_mine = take_ownership;
+      pm->msg = msg;
+      pm->handle = priv->msg_id++;
+      pm->last_message = last_message;
+      priv->message = pm;
+
+      struct kiro_ctrl_msg *req = (struct kiro_ctrl_msg *)ctx->cf_mr_send->mem;
+
+      if (msg->size > 0) {
+          struct kiro_rdma_mem *rdma_out = (struct kiro_rdma_mem *)g_malloc0 (sizeof (struct kiro_rdma_mem));
+          if (!rdma_out) {
+              //
+              //TODO
+              //
+              goto fail;
+          }
+          rdma_out->size = msg->size;
+          rdma_out->mem = msg->payload;
+          if (0 > kiro_register_rdma_memory (conn->pd, &(rdma_out->mr), msg->payload, msg->size, IBV_ACCESS_LOCAL_WRITE)) {
+              //
+              //TODO
+              //
+              goto fail;
+          }
+          pm->rdma_mem = rdma_out;
+
+          req->msg_type = KIRO_REQ_RDMA;
+          req->peer_mri.length = msg->size;
+          req->peer_mri.handle = pm->handle;
+      }
+      else {
+          // STUB message
+          req->msg_type = KIRO_MSG_STUB;
+          req->peer_mri.handle = pm->handle;
+      }
+
+      if (0 > send_msg (conn, ctx->cf_mr_send, msg->msg)) {
+          //
+          //TODO
+          //
+          goto fail;
+      }
+      g_mutex_unlock (&priv->rdma_handling);
+      return 0;
+    }
+    else
+    {
+      // @TODO SASI. RDMA details are now available, so no longer request server for another RDMA and instead simple use tail pointer to put data into the servers ring buffer
+      // We already have RDMA region details of the server. So we should continue using that
+      // Tail is incremented in rdma_write_message. Checking if it is possible to write into ring buffer should also probably be there
+
+      // @TODO SASI.First part is basically repeated from above. Merge it with previous implementation
+      struct pending_message *pm = (struct pending_message *)g_malloc0(sizeof (struct pending_message));
+      if (!pm) {
+          goto fail;
+      }
+      pm->direction = KIRO_MESSAGE_SEND;
+      pm->message_is_mine = take_ownership;
+      pm->msg = msg;
+      pm->handle = priv->msg_id++;
+      pm->last_message = last_message;
+      priv->message = pm;
+
+      struct kiro_rdma_mem *rdma_out = (struct kiro_rdma_mem *)g_malloc0 (sizeof (struct kiro_rdma_mem));
+      if (!rdma_out) {
+          goto fail;
+      }
+      rdma_out->size = msg->size;
+      rdma_out->mem = msg->payload;
+      if (0 > kiro_register_rdma_memory (conn->pd, &(rdma_out->mr), msg->payload, msg->size, IBV_ACCESS_LOCAL_WRITE)) {
+          goto fail;
+      }
+      pm->rdma_mem = rdma_out;
+
+      g_debug("Writing message %d",priv->msg_id);
+      if( FALSE == rdma_write_message(priv))
         goto fail;
+
+      g_debug("Consecutive message was written to the ring buffer");
+      g_mutex_unlock (&priv->rdma_handling);    // Technically this is not RDMA Handling
+      g_hook_list_marshal_check (&(priv->send_callbacks), FALSE, invoke_callbacks, priv->message->msg);
+      // Cleaning up pending message
+      g_free (priv->message); // Freeing pending_message
+      priv->message = NULL;
+
+      return 0;
     }
-    pm->direction = KIRO_MESSAGE_SEND;
-    pm->message_is_mine = take_ownership;
-    pm->msg = msg;
-    pm->handle = priv->msg_id++;
-    priv->message = pm;
+  fail:
+      g_mutex_unlock (&priv->rdma_handling);
+      return -1;
 
-    struct kiro_ctrl_msg *req = (struct kiro_ctrl_msg *)ctx->cf_mr_send->mem;
-
-    if (msg->size > 0) {
-        struct kiro_rdma_mem *rdma_out = (struct kiro_rdma_mem *)g_malloc0 (sizeof (struct kiro_rdma_mem));
-        if (!rdma_out) {
-            //
-            //TODO
-            //
-            goto fail;
-        }
-        rdma_out->size = msg->size;
-        rdma_out->mem = msg->payload;
-        if (0 > kiro_register_rdma_memory (conn->pd, &(rdma_out->mr), msg->payload, msg->size, IBV_ACCESS_LOCAL_WRITE)) {
-            //
-            //TODO
-            //
-            goto fail;
-        }
-        pm->rdma_mem = rdma_out;
-
-        req->msg_type = KIRO_REQ_RDMA;
-        req->peer_mri.length = msg->size;
-        req->peer_mri.handle = pm->handle;
-    }
-    else {
-        // STUB message
-        req->msg_type = KIRO_MSG_STUB;
-        req->peer_mri.handle = pm->handle;
-    }
-
-    if (0 > send_msg (conn, ctx->cf_mr_send, msg->msg)) {
-        //
-        //TODO
-        //
-        goto fail;
-    }
-    g_mutex_unlock (&priv->rdma_handling);
-    return 0;
-
-fail:
-    g_mutex_unlock (&priv->rdma_handling);
-    return -1;
 }
 
 
@@ -1063,4 +1439,3 @@ kiro_messenger_stop (KiroMessenger *self)
     g_hook_list_clear (&(priv->rec_callbacks));
     g_debug ("Messenger stopped successfully");
 }
-

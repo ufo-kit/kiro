@@ -18,7 +18,7 @@
 
 /**
  * SECTION: kiro-rdma
- * 
+ *
  * KIRO toolbox for common operations with and around the
  * RDMA Connection Manager for InfiniBand mechanisms
  */
@@ -84,7 +84,8 @@ struct kiro_ctrl_msg {
         KIRO_REALLOC                                // Used by the server to notify the client about a new peer_mri
     } msg_type;
 
-    struct ibv_mr peer_mri;
+    struct ibv_mr peer_mri; // Ring Buffer
+    struct ibv_mr pin_hd;   // Pinned down location for reading the head pointer
 };
 
 
@@ -103,6 +104,19 @@ struct kiro_rdma_mem {
 
 };
 
+struct kiro_rdma_meta_info {
+  unsigned char start_flag; // A standard flag which denotes that the data is available to read
+  int followup_msg_size;    // Size of the payload
+  void *next_message;       // Pointer to the next message
+  gboolean rdma_done;       // This is polled for rdma write completion
+  gboolean last_message;
+  short message_id;
+};
+
+struct kiro_rdma_rb_status {
+  unsigned int processed_id;// Increments after every processing of payload
+  void *head;               //
+};
 
 static int
 kiro_attach_qp (struct rdma_cm_id *id)
@@ -148,6 +162,8 @@ kiro_register_rdma_memory (struct ibv_pd *pd, struct ibv_mr **mr, void *mem, siz
         return -1;
     }
 
+    // Setting to 0 for ring buffer polling
+    // memset(mem_handle,0,mem_size);
     *mr = ibv_reg_mr (pd, mem_handle, mem_size, access);
 
     if (! (*mr)) {
@@ -255,4 +271,4 @@ kiro_destroy_connection (struct rdma_cm_id **conn)
 }
 
 
-#endif //__KIRO_RDMA_H__   
+#endif //__KIRO_RDMA_H__
